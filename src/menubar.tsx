@@ -1,11 +1,9 @@
-import { MenuBarExtra, showToast, Toast, Icon, openExtensionPreferences } from "@raycast/api";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { MenuBarExtra, Toast, Icon, openExtensionPreferences, Color } from "@raycast/api";
+import { useEffect, useState, useCallback } from "react";
 import { getLibreViewCredentials } from "./preferences";
 import { logout } from "./auth";
-import { format } from "date-fns";
 import { glucoseStore } from "./store";
 import { GlucoseReading } from "./types";
-import { debounce } from "lodash";
 
 interface GlucoseStats {
   average: number;
@@ -43,13 +41,13 @@ const calculateStats = (data: GlucoseReading[], unit: string): GlucoseStats => {
   };
 };
 
-const getValueColor = (value: number, unit: string): string => {
+const getValueColor = (value: number, unit: string): { source: Icon; tintColor: Color } => {
   const lowThreshold = unit === 'mmol' ? 3.9 : 70;
   const highThreshold = unit === 'mmol' ? 10.0 : 180;
   
-  if (value < lowThreshold) return '#EAB308'; // Yellow for low
-  if (value > highThreshold) return '#EF4444'; // Red for high
-  return '#10B981'; // Green for normal
+  if (value < lowThreshold) return { source: Icon.Circle, tintColor: Color.Yellow };
+  if (value > highThreshold) return { source: Icon.Circle, tintColor: Color.Red };
+  return { source: Icon.Circle, tintColor: Color.Green };
 };
 
 export default function Command() {
@@ -58,80 +56,8 @@ export default function Command() {
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [retryCount, setRetryCount] = useState(0);
   const [stats, setStats] = useState<GlucoseStats | null>(null);
   const { unit } = getLibreViewCredentials();
-
-  const generateChartSVG = useCallback((data: GlucoseReading[]) => {
-    if (!data.length) {
-      console.log('No readings available for chart');
-      return '';
-    }
-
-    console.log('Generating chart with readings:', data.length);
-
-    // Increase dimensions for better visibility
-    const width = 600;
-    const height = 200;
-    const padding = 20;
-
-    const chartData = data.slice(0, 24).map(r => ({
-      value: unit === 'mmol' ? r.Value : r.ValueInMgPerDl,
-      color: getValueColor(unit === 'mmol' ? r.Value : r.ValueInMgPerDl, unit)
-    })).reverse();
-
-    const values = chartData.map(d => d.value);
-    const min = Math.min(...values) * 0.9;
-    const max = Math.max(...values) * 1.1;
-
-    const xScale = (width - 2 * padding) / (chartData.length - 1);
-    const yScale = (height - 2 * padding) / (max - min);
-
-    const points = chartData.map((d, i) => {
-      const x = padding + i * xScale;
-      const y = height - (padding + (d.value - min) * yScale);
-      return `${x},${y}`;
-    });
-
-    // Create SVG with path and points
-    const svg = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-      <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-      <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" version="1.1">
-        <rect width="100%" height="100%" fill="white"/>
-        <polyline
-          points="${points.join(' ')}"
-          fill="none"
-          stroke="#3B82F6"
-          stroke-width="4"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-        ${points.map((point, i) => {
-          const [x, y] = point.split(',');
-          return `
-            <circle
-              cx="${x}"
-              cy="${y}"
-              r="6"
-              fill="${chartData[i].color}"
-              stroke="white"
-              stroke-width="2"
-            />
-          `;
-        }).join('')}
-      </svg>`.trim();
-
-    // Properly encode the SVG for use in data URL
-    const encoded = Buffer.from(svg).toString('base64');
-    const dataUrl = `data:image/svg+xml;base64,${encoded}`;
-    console.log('Generated SVG data URL:', dataUrl.length, 'characters');
-    return dataUrl;
-  }, [unit]);
-
-  const chartImage = useMemo(() => {
-    if (!readings.length) return '';
-    return generateChartSVG(readings);
-  }, [readings, generateChartSVG]);
 
   const getTrendIcon = useCallback(() => {
     if (readings.length < 2) return "→";
@@ -157,7 +83,6 @@ export default function Command() {
         setLastUpdateTime(new Date(latest.Timestamp));
         setStats(calculateStats(data, unit));
         setError(null);
-        setRetryCount(0);
       } else {
         throw new Error("No readings available");
       }
@@ -166,19 +91,17 @@ export default function Command() {
       console.error('Menubar: Error in fetchData:', errorMessage);
       setError(errorMessage);
       
-      if (!errorMessage.includes('Rate limited') || retryCount === 0) {
+      if (!errorMessage.includes('Rate limited')) {
         await showToast({ 
           style: Toast.Style.Failure, 
           title: "Error fetching data",
           message: errorMessage
         });
       }
-      
-      setRetryCount(prev => prev + 1);
     } finally {
       setIsLoading(false);
     }
-  }, [unit, retryCount]);
+  }, [unit]);
 
   useEffect(() => {
     fetchData();
@@ -188,7 +111,7 @@ export default function Command() {
 
   return (
     <MenuBarExtra
-      icon={error ? Icon.ExclamationMark : Icon.Circle}
+      icon={error ? Icon.ExclamationMark : getValueColor(Number(latestReading), unit)}
       title={latestReading ? `${latestReading}${unit === 'mmol' ? ' mmol/L' : ' mg/dL'} ${getTrendIcon()}` : error ? "⚠️ Error" : "Loading..."}
       tooltip={error ? `Error: ${error}` : lastUpdateTime ? `Last updated: ${lastUpdateTime.toLocaleTimeString()}` : "Loading glucose data..."}
       isLoading={isLoading}
@@ -203,17 +126,8 @@ export default function Command() {
           <>
             <MenuBarExtra.Item
               title={`Last Reading: ${latestReading}${unit === 'mmol' ? ' mmol/L' : ' mg/dL'}`}
-              icon={Icon.Circle}
+              icon={getValueColor(Number(latestReading), unit)}
             />
-            {chartImage && (
-              <MenuBarExtra.Item
-                title="                                                                                                    "
-                icon={{
-                  source: chartImage,
-                  tintColor: null
-                }}
-              />
-            )}
             {stats && (
               <>
                 <MenuBarExtra.Item
@@ -221,9 +135,20 @@ export default function Command() {
                   icon={Icon.Circle}
                 />
                 <MenuBarExtra.Item
-                  title={`Time in Range: ${stats.timeInRange.normal.toFixed(1)}%`}
+                  title="Time in Ranges"
                   icon={Icon.Circle}
-                  tooltip={`Low: ${stats.timeInRange.low.toFixed(1)}%, Normal: ${stats.timeInRange.normal.toFixed(1)}%, High: ${stats.timeInRange.high.toFixed(1)}%`}
+                />
+                <MenuBarExtra.Item
+                  title={`    Low: ${stats.timeInRange.low.toFixed(1)}%`}
+                  tooltip={`Below ${unit === 'mmol' ? '3.9 mmol/L' : '70 mg/dL'}`}
+                />
+                <MenuBarExtra.Item
+                  title={`    In Range: ${stats.timeInRange.normal.toFixed(1)}%`}
+                  tooltip={`${unit === 'mmol' ? '3.9-10.0 mmol/L' : '70-180 mg/dL'}`}
+                />
+                <MenuBarExtra.Item
+                  title={`    High: ${stats.timeInRange.high.toFixed(1)}%`}
+                  tooltip={`Above ${unit === 'mmol' ? '10.0 mmol/L' : '180 mg/dL'}`}
                 />
               </>
             )}
@@ -244,7 +169,7 @@ export default function Command() {
         />
         <MenuBarExtra.Item
           title="Logout"
-          icon={Icon.ExitFullScreen}
+          icon={Icon.Terminal}
           onAction={logout}
         />
       </MenuBarExtra.Section>
