@@ -1,7 +1,8 @@
-import { MenuBarExtra, showToast, Toast } from "@raycast/api";
+import { MenuBarExtra, showToast, Toast, Icon, openExtensionPreferences, open } from "@raycast/api";
 import { useEffect, useState, useCallback } from "react";
 import { fetchGlucoseData } from "./libreview";
 import { getLibreViewCredentials } from "./preferences";
+import { logout } from "./auth";
 import { GlucoseReading } from "./types";
 
 interface GlucoseStats {
@@ -33,6 +34,7 @@ export default function Command() {
     const average = values.reduce((a, b) => a + b, 0) / values.length;
 
     const totalReadings = recentReadings.length;
+
     const lowCount = recentReadings.filter(r => {
       const value = unit === 'mmol' ? r.Value : r.Value / 18.0;
       return value < 3.9;
@@ -111,14 +113,45 @@ export default function Command() {
     }
   }, [unit]);
 
+  const handleLogout = useCallback(async () => {
+    await logout();
+    // After logout, open preferences to prompt for re-login
+    await openExtensionPreferences();
+  }, []);
+
   useEffect(() => {
     // Initial load
     loadData(false);
-
     // Refresh data every 5 minutes to match package.json interval
     const interval = setInterval(() => loadData(false), 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Check if credentials are missing
+  if (!credentials.username || !credentials.password) {
+    return (
+      <MenuBarExtra
+        title="⚠️ Login Required"
+      >
+        <MenuBarExtra.Item
+          title="Configure LibreView Account"
+          icon={Icon.Person}
+          onAction={openExtensionPreferences}
+        />
+        <MenuBarExtra.Separator />
+        <MenuBarExtra.Item
+          title="Download LibreLinkUp App"
+          icon={Icon.Download}
+          onAction={() => open("https://www.libreview.com/")}
+        />
+        <MenuBarExtra.Item
+          title="LibreView Support"
+          icon={Icon.QuestionMark}
+          onAction={() => open("https://www.libreview.com/support")}
+        />
+      </MenuBarExtra>
+    );
+  }
 
   const title = isLoading 
     ? "Loading..." 
@@ -129,7 +162,7 @@ export default function Command() {
   return (
     <MenuBarExtra
       title={title}
-      onOpen={() => loadData(true)} // Refresh data when menu is opened
+      onOpen={() => loadData(true)}
     >
       <MenuBarExtra.Item
         title={isLoading ? "Updating..." : `Latest: ${latestReading}`}
@@ -161,6 +194,22 @@ export default function Command() {
           />
           <MenuBarExtra.Item
             title={`🔴 High: ${stats.timeInRange.high.toFixed(1)}%`}
+          />
+          <MenuBarExtra.Separator />
+          <MenuBarExtra.Item
+            title="Refresh"
+            icon={Icon.ArrowClockwise}
+            onAction={() => loadData(true)}
+          />
+          <MenuBarExtra.Item
+            title="Logout"
+            icon={Icon.ExitFullScreen}
+            onAction={handleLogout}
+          />
+          <MenuBarExtra.Item
+            title="Preferences"
+            icon={Icon.Gear}
+            onAction={openExtensionPreferences}
           />
         </>
       )}

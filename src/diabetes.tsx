@@ -1,8 +1,9 @@
-import { Detail, Toast, showToast } from "@raycast/api";
-import { useEffect, useState } from "react";
+import { Detail, Toast, showToast, ActionPanel, Action, Icon, openExtensionPreferences } from "@raycast/api";
+import { useEffect, useState, useCallback } from "react";
 import { fetchGlucoseData } from "./libreview";
 import { format } from "date-fns";
 import { getLibreViewCredentials } from "./preferences";
+import { logout } from "./auth";
 
 // Glucose range constants (mmol/L)
 const RANGE = {
@@ -26,27 +27,33 @@ interface GlucoseReading {
 export default function Command() {
   const [readings, setReadings] = useState<GlucoseReading[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { unit } = getLibreViewCredentials();
+  const [error, setError] = useState<string | null>(null);
+  const credentials = getLibreViewCredentials();
+  const { unit } = credentials;
+
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await fetchGlucoseData();
+      setReadings(data);
+    } catch (error) {
+      console.error('Error fetching glucose data:', error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      setError(errorMessage);
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to load glucose data",
+        message: errorMessage,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        const data = await fetchGlucoseData();
-        setReadings(data);
-      } catch (error) {
-        console.error('Error fetching glucose data:', error);
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "Failed to load glucose data",
-          message: error instanceof Error ? error.message : "Unknown error",
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
     loadData();
-  }, []);
+  }, [loadData]);
 
   function getGlucoseStatus(value: number): { symbol: string; status: string } {
     // Always use mmol/L for range checking
@@ -160,6 +167,48 @@ ${gauge}
       .join("\n\n");
   }
 
+  const handleLogout = useCallback(async () => {
+    await logout();
+    // After logout, open preferences to prompt for re-login
+    await openExtensionPreferences();
+  }, []);
+
+  // Check if credentials are missing
+  if (!credentials.username || !credentials.password) {
+    return (
+      <Detail
+        markdown={`# LibreView Login Required
+
+Please follow these steps to set up your connection:
+
+1. First Time Setup:
+   - Download the LibreLinkUp mobile app
+   - Create a LibreView account if you don't have one
+   - Add the account that has the Libre sensor
+   - Wait for them to accept the invitation
+
+2. Configure Extension:
+   - Click the "Open Preferences" button below
+   - Enter your LibreView account email
+   - Enter your LibreView account password
+   - Select your preferred glucose unit (mmol/L or mg/dL)
+
+Your data will appear here once you've completed these steps.
+
+Need help? Visit [LibreView Support](https://www.libreview.com/support)`}
+        actions={
+          <ActionPanel>
+            <Action
+              title="Open Preferences"
+              icon={Icon.Gear}
+              onAction={openExtensionPreferences}
+            />
+          </ActionPanel>
+        }
+      />
+    );
+  }
+
   const markdown = `# Glucose Readings (Last 24 Hours)
 
 ${isLoading ? "Loading..." : generateAverageDisplay()}
@@ -175,5 +224,31 @@ Legend:
 ` : ''}
 `;
 
-  return <Detail markdown={markdown} isLoading={isLoading} />;
+  return (
+    <Detail 
+      markdown={error ? "# Error Loading Data\n\n" + error : markdown}
+      isLoading={isLoading}
+      actions={
+        <ActionPanel>
+          <Action
+            title="Refresh"
+            icon={Icon.ArrowClockwise}
+            onAction={loadData}
+            shortcut={{ modifiers: ["cmd"], key: "r" }}
+          />
+          <Action
+            title="Logout"
+            icon={Icon.ExitFullScreen}
+            onAction={handleLogout}
+            shortcut={{ modifiers: ["cmd"], key: "l" }}
+          />
+          <Action
+            title="Open Preferences"
+            icon={Icon.Gear}
+            onAction={openExtensionPreferences}
+          />
+        </ActionPanel>
+      }
+    />
+  );
 }
