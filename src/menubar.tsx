@@ -60,7 +60,6 @@ export default function Command() {
 
   return (
     <MenuBarExtra
-      icon="🩸"
       title={isLoading ? "Loading..." : latestReading || "No data"}
     >
       <MenuBarExtra.Item
