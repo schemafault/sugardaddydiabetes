@@ -13,10 +13,17 @@
   "commands": [
     {
       "name": "diabetes",
-      "title": "Diabetes",
-      "subtitle": "Monitor and control ",
-      "description": "Launches interface to show latest live data. ",
+      "title": "View Glucose Readings",
+      "description": "Show glucose readings from LibreView",
       "mode": "view"
+    },
+    {
+      "name": "menubar",
+      "title": "Glucose Menu Bar",
+      "description": "Show latest glucose reading in menu bar",
+      "mode": "menu-bar",
+      "interval": "5m",
+      "persistent": true
     }
   ],
   "preferences": [
