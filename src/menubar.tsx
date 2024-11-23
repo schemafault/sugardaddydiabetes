@@ -1,5 +1,5 @@
-import { MenuBarExtra } from "@raycast/api";
-import { useEffect, useState } from "react";
+import { MenuBarExtra, showToast, Toast } from "@raycast/api";
+import { useEffect, useState, useCallback } from "react";
 import { fetchGlucoseData } from "./libreview";
 import { getLibreViewCredentials } from "./preferences";
 import { GlucoseReading } from "./types";
@@ -18,6 +18,7 @@ export default function Command() {
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const [stats, setStats] = useState<GlucoseStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const credentials = getLibreViewCredentials();
   const unit = credentials.unit || 'mmol';
 
@@ -52,64 +53,92 @@ export default function Command() {
     };
   };
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const readings = await fetchGlucoseData();
+  const loadData = useCallback(async (showError = true) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const readings = await fetchGlucoseData();
+      
+      if (readings && readings.length > 0) {
+        // Calculate stats
+        const glucoseStats = calculateStats(readings);
+        setStats(glucoseStats);
         
-        if (readings && readings.length > 0) {
-          // Calculate stats
-          const glucoseStats = calculateStats(readings);
-          setStats(glucoseStats);
-          
-          // Get the last reading from the full dataset
-          const latest = readings[readings.length - 1];
-          const value = unit === 'mmol' ? latest.Value : latest.ValueInMgPerDl;
-          const unit_label = unit === 'mmol' ? 'mmol/L' : 'mg/dL';
-          
-          // Use the reading's timestamp
-          const readingTime = new Date(latest.Timestamp);
-          
-          // Determine status emoji
-          let statusEmoji = "🟢";
-          const mmolValue = unit === 'mmol' ? value : value / 18.0;
-          if (mmolValue < 3.0) {
-            statusEmoji = "🟡";
-          } else if (mmolValue > 10.0) {
-            statusEmoji = "🔴";
-          }
-          
-          const displayText = `${value.toFixed(1)}${unit_label} ${statusEmoji}`;
-          setLatestReading(displayText);
-          setLastUpdateTime(readingTime);
-        } else {
-          setLatestReading("No data");
+        // Get the last reading from the full dataset
+        const latest = readings[readings.length - 1];
+        const value = unit === 'mmol' ? latest.Value : latest.ValueInMgPerDl;
+        const unit_label = unit === 'mmol' ? ' mmol/L' : ' mg/dL';
+        
+        // Use the reading's timestamp
+        const readingTime = new Date(latest.Timestamp);
+        
+        // Determine status emoji
+        let statusEmoji = "🟢";
+        const mmolValue = unit === 'mmol' ? value : value / 18.0;
+        if (mmolValue < 3.0) {
+          statusEmoji = "🟡";
+        } else if (mmolValue > 10.0) {
+          statusEmoji = "🔴";
         }
-      } catch (error) {
-        console.error('Menu Bar - Error:', error);
-        setLatestReading("Error");
-      } finally {
-        setIsLoading(false);
+        
+        const displayText = `${value.toFixed(1)}${unit_label} ${statusEmoji}`;
+        setLatestReading(displayText);
+        setLastUpdateTime(readingTime);
+      } else {
+        setLatestReading("No data");
+        if (showError) {
+          await showToast({
+            style: Toast.Style.Failure,
+            title: "No glucose readings available",
+            message: "Please check your LibreView connection",
+          });
+        }
       }
+    } catch (error) {
+      console.error('Menu Bar - Error:', error);
+      setLatestReading("Error");
+      setError(error instanceof Error ? error.message : "Unknown error");
+      if (showError) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Failed to load glucose data",
+          message: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    } finally {
+      setIsLoading(false);
     }
-
-    loadData();
-    // Refresh data every 10 minutes
-    const interval = setInterval(loadData, 10 * 60 * 1000);
-    return () => clearInterval(interval);
   }, [unit]);
 
-  if (!latestReading && !isLoading) {
-    return null;
-  }
+  useEffect(() => {
+    // Initial load
+    loadData(false);
+
+    // Refresh data every 5 minutes to match package.json interval
+    const interval = setInterval(() => loadData(false), 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  const title = isLoading 
+    ? "Loading..." 
+    : error 
+    ? "⚠️ Error" 
+    : latestReading || "No data";
 
   return (
     <MenuBarExtra
-      title={isLoading ? "Loading..." : latestReading || "No data"}
+      title={title}
+      onOpen={() => loadData(true)} // Refresh data when menu is opened
     >
       <MenuBarExtra.Item
         title={isLoading ? "Updating..." : `Latest: ${latestReading}`}
       />
+      {error && (
+        <MenuBarExtra.Item
+          title={`Error: ${error}`}
+        />
+      )}
       {lastUpdateTime && (
         <MenuBarExtra.Item
           title={`Reading from: ${lastUpdateTime.toLocaleTimeString()}`}
