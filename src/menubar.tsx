@@ -1,4 +1,5 @@
-import { MenuBarExtra, Toast, Icon, openExtensionPreferences, Color } from "@raycast/api";
+import { format } from "date-fns";
+import { MenuBarExtra, showToast, Toast, Icon, openExtensionPreferences, Color, popToRoot } from "@raycast/api";
 import { useEffect, useState, useCallback } from "react";
 import { getLibreViewCredentials } from "./preferences";
 import { logout } from "./auth";
@@ -58,6 +59,7 @@ export default function Command() {
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<GlucoseStats | null>(null);
   const { unit } = getLibreViewCredentials();
+  const [isVisible, setIsVisible] = useState(true);
 
   const getTrendIcon = useCallback(() => {
     if (readings.length < 2) return "→";
@@ -109,6 +111,8 @@ export default function Command() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  if (!isVisible) return null;
+
   return (
     <MenuBarExtra
       icon={error ? Icon.ExclamationMark : getValueColor(Number(latestReading), unit)}
@@ -126,6 +130,7 @@ export default function Command() {
           <>
             <MenuBarExtra.Item
               title={`Last Reading: ${latestReading}${unit === 'mmol' ? ' mmol/L' : ' mg/dL'}`}
+              subtitle={lastUpdateTime ? format(lastUpdateTime, 'MMM d, h:mm a') : undefined}
               icon={getValueColor(Number(latestReading), unit)}
             />
             {stats && (
@@ -171,6 +176,11 @@ export default function Command() {
           title="Logout"
           icon={Icon.Terminal}
           onAction={logout}
+        />
+        <MenuBarExtra.Item
+          title="Quit"
+          icon={Icon.XmarkCircle}
+          onAction={() => setIsVisible(false)}
         />
       </MenuBarExtra.Section>
     </MenuBarExtra>
