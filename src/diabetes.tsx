@@ -4,6 +4,12 @@ import { fetchGlucoseData } from "./libreview";
 import { format } from "date-fns";
 import { getLibreViewCredentials } from "./preferences";
 
+// Glucose range constants (mmol/L)
+const RANGE = {
+  LOW_THRESHOLD: 3.0,
+  HIGH_THRESHOLD: 10.0
+};
+
 interface GlucoseReading {
   Timestamp: string;
   ValueInMgPerDl: number;
@@ -25,7 +31,6 @@ export default function Command() {
     async function loadData() {
       try {
         const data = await fetchGlucoseData();
-        console.log('Glucose data received:', JSON.stringify(data, null, 2));
         setReadings(data);
       } catch (error) {
         console.error('Error fetching glucose data:', error);
@@ -42,6 +47,18 @@ export default function Command() {
     loadData();
   }, []);
 
+  function getGlucoseStatus(value: number): { symbol: string; status: string } {
+    // Always use mmol/L for range checking
+    const mmolValue = unit === 'mmol' ? value : value / 18.0;
+    
+    if (mmolValue < RANGE.LOW_THRESHOLD) {
+      return { symbol: "🟡", status: "Low" };
+    } else if (mmolValue > RANGE.HIGH_THRESHOLD) {
+      return { symbol: "🔴", status: "High" };
+    }
+    return { symbol: "🟢", status: "In Range" };
+  }
+
   function generateBarChart() {
     if (readings.length === 0) {
       return "No glucose readings available. Make sure your LibreView account is connected and has recent readings.";
@@ -57,7 +74,8 @@ export default function Command() {
         try {
           const value = unit === 'mmol' ? reading.Value : reading.ValueInMgPerDl;
           const barHeight = Math.round(value * scale);
-          const bar = "█".repeat(barHeight);
+          const { symbol, status } = getGlucoseStatus(value);
+          const bar = symbol.repeat(barHeight);
           
           // Parse the Timestamp field from the API
           const [datePart, timePart, period] = reading.Timestamp.split(' ');
@@ -88,7 +106,8 @@ export default function Command() {
 
           const time = format(timestamp, "HH:mm");
           const unit_label = unit === 'mmol' ? 'mmol/L' : 'mg/dL';
-          return `${time} ${value.toFixed(1)}${unit_label}\n${bar}`;
+          
+          return `${time} ${value.toFixed(1)}${unit_label} (${status})\n${bar}`;
         } catch (error) {
           console.warn('Error formatting reading:', error);
           return null;
@@ -100,6 +119,13 @@ export default function Command() {
 
   const markdown = `# Glucose Readings (Last 24 Hours)
 ${isLoading ? "Loading..." : generateBarChart()}
+
+${!isLoading && readings.length > 0 ? `
+Legend:
+🟢 In Range (${RANGE.LOW_THRESHOLD}-${RANGE.HIGH_THRESHOLD} mmol/L)
+🟡 Low (< ${RANGE.LOW_THRESHOLD} mmol/L)
+🔴 High (> ${RANGE.HIGH_THRESHOLD} mmol/L)
+` : ''}
 `;
 
   return <Detail markdown={markdown} isLoading={isLoading} />;
