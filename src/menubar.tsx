@@ -7,17 +7,23 @@ import { GlucoseReading } from "./types";
 export default function Command() {
   const [latestReading, setLatestReading] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const credentials = getLibreViewCredentials();
   const unit = credentials.unit || 'mmol';
 
   useEffect(() => {
     async function loadData() {
       try {
-        const data = await fetchGlucoseData();
-        if (data && data.length > 0) {
-          const latest = data[0];
+        const readings = await fetchGlucoseData();
+        
+        if (readings && readings.length > 0) {
+          // Get the last reading from the full dataset
+          const latest = readings[readings.length - 1];
           const value = unit === 'mmol' ? latest.Value : latest.ValueInMgPerDl;
           const unit_label = unit === 'mmol' ? 'mmol/L' : 'mg/dL';
+          
+          // Use the reading's timestamp
+          const readingTime = new Date(latest.Timestamp);
           
           // Determine status emoji
           let statusEmoji = "🟢";
@@ -28,12 +34,14 @@ export default function Command() {
             statusEmoji = "🔴";
           }
           
-          setLatestReading(`${value.toFixed(1)}${unit_label} ${statusEmoji}`);
+          const displayText = `${value.toFixed(1)}${unit_label} ${statusEmoji}`;
+          setLatestReading(displayText);
+          setLastUpdateTime(readingTime);
         } else {
           setLatestReading("No data");
         }
       } catch (error) {
-        console.error('Error fetching glucose data:', error);
+        console.error('Menu Bar - Error:', error);
         setLatestReading("Error");
       } finally {
         setIsLoading(false);
@@ -41,8 +49,8 @@ export default function Command() {
     }
 
     loadData();
-    // Refresh data every 5 minutes
-    const interval = setInterval(loadData, 5 * 60 * 1000);
+    // Refresh data every 10 minutes
+    const interval = setInterval(loadData, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, [unit]);
 
@@ -58,6 +66,11 @@ export default function Command() {
       <MenuBarExtra.Item
         title={isLoading ? "Updating..." : `Latest: ${latestReading}`}
       />
+      {lastUpdateTime && (
+        <MenuBarExtra.Item
+          title={`Reading from: ${lastUpdateTime.toLocaleTimeString()}`}
+        />
+      )}
     </MenuBarExtra>
   );
 }

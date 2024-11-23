@@ -21,6 +21,7 @@ interface AuthResponse {
 interface ConnectionsResponse {
   data: Array<{
     patientId: string;
+    glucoseMeasurement?: GlucoseReading;
   }>;
 }
 
@@ -41,28 +42,55 @@ interface GlucoseResponse {
     graphData: GlucoseReading[];
     startDate: string;
     endDate: string;
+    connection?: {
+      glucoseMeasurement: GlucoseReading;
+    };
   };
+}
+
+let cachedToken: string | null = null;
+let lastTokenTime: number = 0;
+const TOKEN_EXPIRY = 50 * 60 * 1000; // 50 minutes in milliseconds
+const RATE_LIMIT_DELAY = 60 * 1000; // 1 minute delay for rate limiting
+
+export async function authenticate(): Promise<string> {
+  // Check if we have a valid cached token
+  const now = Date.now();
+  if (cachedToken && (now - lastTokenTime) < TOKEN_EXPIRY) {
+    return cachedToken;
+  }
+
+  const { username, password } = getLibreViewCredentials();
+  
+  try {
+    const response = await axios.post(
+      `${API_BASE}/llu/auth/login`,
+      { email: username, password },
+      { headers: API_HEADERS }
+    );
+
+    if (response.status === 200 && response.data.data.authTicket) {
+      cachedToken = response.data.data.authTicket.token;
+      lastTokenTime = now;
+      return cachedToken;
+    }
+    
+    throw new Error('Authentication failed');
+  } catch (error: any) {
+    if (error.response?.status === 430) {
+      console.log('Rate limited, waiting before retry...');
+      await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY));
+      return authenticate(); // Retry after delay
+    }
+    throw error;
+  }
 }
 
 export async function fetchGlucoseData(): Promise<GlucoseReading[]> {
   try {
-    console.log('Attempting to authenticate with LibreLinkUp...');
-    const { username, password } = getLibreViewCredentials();
-
-    // First authenticate with LibreLinkUp
-    const authResponse = await axios.post<AuthResponse>(`${API_BASE}/llu/auth/login`, 
-      {
-        email: username,
-        password: password
-      },
-      { headers: API_HEADERS }
-    );
-
-    console.log('Auth successful, getting token...');
-    const token = authResponse.data.data.authTicket.token;
+    const token = await authenticate();
     const authHeaders = { ...API_HEADERS, Authorization: `Bearer ${token}` };
 
-    // Get patient ID from connections
     console.log('Getting connections...');
     const connectionsResponse = await axios.get<ConnectionsResponse>(
       `${API_BASE}/llu/connections`,
@@ -121,12 +149,11 @@ export async function fetchGlucoseData(): Promise<GlucoseReading[]> {
 
     return readings;
 
-  } catch (error) {
-    console.error('Error fetching Libre data:', error);
-    if (axios.isAxiosError(error)) {
-      console.error('Response data:', error.response?.data);
-      console.error('Response status:', error.response?.status);
-      throw new Error(`LibreView API error: ${error.response?.data?.message || error.message}`);
+  } catch (error: any) {
+    if (error.response?.status === 430) {
+      console.log('Rate limited, waiting before retry...');
+      await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY));
+      return fetchGlucoseData(); // Retry after delay
     }
     throw error;
   }
