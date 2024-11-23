@@ -19,9 +19,27 @@
       "mode": "view"
     }
   ],
+  "preferences": [
+    {
+      "name": "username",
+      "type": "password",
+      "required": true,
+      "title": "LibreView Username",
+      "description": "Your LibreView account email"
+    },
+    {
+      "name": "password",
+      "type": "password",
+      "required": true,
+      "title": "LibreView Password",
+      "description": "Your LibreView account password"
+    }
+  ],
   "dependencies": {
     "@raycast/api": "^1.86.0",
-    "@raycast/utils": "^1.17.0"
+    "@raycast/utils": "^1.17.0",
+    "axios": "^1.7.7",
+    "date-fns": "^3.6.0"
   },
   "devDependencies": {
     "@raycast/eslint-config": "^1.0.11",
