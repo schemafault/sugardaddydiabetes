@@ -32,21 +32,23 @@
       "type": "textfield",
       "required": true,
       "title": "LibreView Username",
-      "description": "Your LibreView account email"
+      "description": "Your LibreView account username/email",
+      "placeholder": "email@example.com"
     },
     {
       "name": "password",
       "type": "password",
       "required": true,
       "title": "LibreView Password",
-      "description": "Your LibreView account password"
+      "description": "Your LibreView account password",
+      "placeholder": "password"
     },
     {
       "name": "unit",
       "type": "dropdown",
       "required": true,
       "title": "Glucose Unit",
-      "description": "Choose your preferred glucose unit",
+      "description": "Choose between mmol/L and mg/dL",
       "data": [
         {
           "title": "mmol/L",
@@ -61,25 +63,25 @@
     }
   ],
   "dependencies": {
-    "@raycast/api": "^1.86.0",
-    "@raycast/utils": "^1.17.0",
-    "axios": "^1.7.7",
-    "date-fns": "^3.6.0"
+    "@raycast/api": "^1.67.1",
+    "@raycast/utils": "^1.4.8",
+    "date-fns": "^2.30.0",
+    "node-fetch": "^3.3.0"
   },
   "devDependencies": {
-    "@raycast/eslint-config": "^1.0.11",
-    "@types/node": "20.8.10",
-    "@types/react": "18.3.3",
-    "eslint": "^8.57.0",
-    "prettier": "^3.3.3",
-    "typescript": "^5.4.5"
+    "@raycast/eslint-config": "^1.0.6",
+    "@types/node": "^20.8.10",
+    "@types/react": "^18.2.27",
+    "@types/d3": "^7.4.3",
+    "eslint": "^8.51.0",
+    "prettier": "^3.0.3",
+    "typescript": "^5.2.2"
   },
   "scripts": {
-    "build": "ray build",
+    "build": "ray build -e dist",
     "dev": "ray develop",
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
-    "prepublishOnly": "echo \"\\n\\nIt seems like you are trying to publish the Raycast extension to npm.\\n\\nIf you did intend to publish it to npm, remove the \\`prepublishOnly\\` script and rerun \\`npm publish\\` again.\\nIf you wanted to publish it to the Raycast Store instead, use \\`npm run publish\\` instead.\\n\\n\" && exit 1",
     "publish": "npx @raycast/api@latest publish"
   }
 }
