@@ -7,7 +7,8 @@ import { getLibreViewCredentials } from "./preferences";
 // Glucose range constants (mmol/L)
 const RANGE = {
   LOW_THRESHOLD: 3.0,
-  HIGH_THRESHOLD: 10.0
+  HIGH_THRESHOLD: 10.0,
+  MAX_DISPLAY: 25.0 // Maximum value to show on gauge
 };
 
 interface GlucoseReading {
@@ -57,6 +58,48 @@ export default function Command() {
       return { symbol: "🔴", status: "High" };
     }
     return { symbol: "🟢", status: "In Range" };
+  }
+
+  function generateAverageDisplay() {
+    if (readings.length === 0) return "";
+
+    const values = readings.map(r => unit === 'mmol' ? r.Value : r.ValueInMgPerDl);
+    const average = values.reduce((a, b) => a + b, 0) / values.length;
+    const { symbol, status } = getGlucoseStatus(average);
+    const unit_label = unit === 'mmol' ? 'mmol/L' : 'mg/dL';
+
+    // Convert to mmol/L for gauge if needed
+    const mmolAvg = unit === 'mmol' ? average : average / 18.0;
+    
+    // Create a gauge with markers
+    const gaugeWidth = 34;  // Width of the gauge line
+    let gauge = "     Low        In Range        High\n";
+    gauge += "     3──────────10──────────────25\n";
+    gauge += "     └──────────┴──────────────┘\n";
+    
+    // Calculate position for the indicator (▲)
+    // Scale between 3 and 25 mmol/L
+    const minScale = 3;
+    const maxScale = 25;
+    const scaleRange = maxScale - minScale;
+    const normalizedPos = Math.min(Math.max(mmolAvg, minScale), maxScale);
+    const positionRatio = (normalizedPos - minScale) / scaleRange;
+    const maxPosition = 26; // Reduced maximum position to align just before 25
+    const position = Math.round(positionRatio * maxPosition);
+    
+    // Ensure the value doesn't go beyond the gauge width
+    const clampedPosition = Math.min(position, maxPosition);
+    const spaces = " ".repeat(5 + clampedPosition); // 5 spaces for left margin
+    
+    // Add the indicator and value, ensuring they align with the gauge
+    gauge += `${spaces}▲\n`;
+    gauge += `${spaces}${mmolAvg.toFixed(1)}`;
+
+    return `## 24-Hour Average: ${average.toFixed(1)}${unit_label} ${symbol}
+${status}
+
+${gauge}
+`;
   }
 
   function generateBarChart() {
@@ -118,13 +161,17 @@ export default function Command() {
   }
 
   const markdown = `# Glucose Readings (Last 24 Hours)
+
+${isLoading ? "Loading..." : generateAverageDisplay()}
+
+## Readings
 ${isLoading ? "Loading..." : generateBarChart()}
 
 ${!isLoading && readings.length > 0 ? `
 Legend:
-🟢 In Range (${RANGE.LOW_THRESHOLD}-${RANGE.HIGH_THRESHOLD} mmol/L)
-🟡 Low (< ${RANGE.LOW_THRESHOLD} mmol/L)
-🔴 High (> ${RANGE.HIGH_THRESHOLD} mmol/L)
+ In Range (${RANGE.LOW_THRESHOLD}-${RANGE.HIGH_THRESHOLD} mmol/L)
+ Low (< ${RANGE.LOW_THRESHOLD} mmol/L)
+ High (> ${RANGE.HIGH_THRESHOLD} mmol/L)
 ` : ''}
 `;
 
