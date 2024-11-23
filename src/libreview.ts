@@ -27,11 +27,11 @@ interface ConnectionsResponse {
 interface GlucoseReading {
   Timestamp: string;
   ValueInMgPerDl: number;
+  Value: number; // mmol/L
   FactoryTimestamp: string;
   type: number;
   MeasurementColor: number;
   GlucoseUnits: number;
-  Value: number;
   isHigh: boolean;
   isLow: boolean;
 }

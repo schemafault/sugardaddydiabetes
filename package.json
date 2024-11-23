@@ -22,7 +22,7 @@
   "preferences": [
     {
       "name": "username",
-      "type": "password",
+      "type": "textfield",
       "required": true,
       "title": "LibreView Username",
       "description": "Your LibreView account email"
@@ -33,6 +33,24 @@
       "required": true,
       "title": "LibreView Password",
       "description": "Your LibreView account password"
+    },
+    {
+      "name": "unit",
+      "type": "dropdown",
+      "required": true,
+      "title": "Glucose Unit",
+      "description": "Choose your preferred glucose unit",
+      "data": [
+        {
+          "title": "mmol/L",
+          "value": "mmol"
+        },
+        {
+          "title": "mg/dL",
+          "value": "mgdl"
+        }
+      ],
+      "default": "mmol"
     }
   ],
   "dependencies": {
