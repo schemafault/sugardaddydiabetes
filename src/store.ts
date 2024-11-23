@@ -99,7 +99,7 @@ class GlucoseStore {
         .catch(async (error) => {
           console.error("Fetch failed:", error);
           
-          // If fetch fails but we have cached data, use it
+          // If we have cached data, return it as fallback
           if (cachedData) {
             console.log("Using cached data after fetch failure, from:", new Date(cachedData.timestamp).toLocaleTimeString());
             return cachedData.readings;

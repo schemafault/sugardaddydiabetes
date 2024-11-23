@@ -70,9 +70,10 @@ export default function Command() {
 
     console.log('Generating chart with readings:', data.length);
 
-    const width = 300;
-    const height = 80;
-    const padding = 10;
+    // Increase dimensions for better visibility
+    const width = 600;
+    const height = 200;
+    const padding = 20;
 
     const chartData = data.slice(0, 24).map(r => ({
       value: unit === 'mmol' ? r.Value : r.ValueInMgPerDl,
@@ -101,7 +102,7 @@ export default function Command() {
           points="${points.join(' ')}"
           fill="none"
           stroke="#3B82F6"
-          stroke-width="2"
+          stroke-width="4"
           stroke-linecap="round"
           stroke-linejoin="round"
         />
@@ -111,10 +112,10 @@ export default function Command() {
             <circle
               cx="${x}"
               cy="${y}"
-              r="3"
+              r="6"
               fill="${chartData[i].color}"
               stroke="white"
-              stroke-width="1"
+              stroke-width="2"
             />
           `;
         }).join('')}
@@ -206,7 +207,7 @@ export default function Command() {
             />
             {chartImage && (
               <MenuBarExtra.Item
-                title=" "
+                title="                                                                                                    "
                 icon={{
                   source: chartImage,
                   tintColor: null

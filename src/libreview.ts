@@ -1,4 +1,4 @@
-import axios from "axios";
+import fetch from 'node-fetch';
 import { format } from "date-fns";
 import { getLibreViewCredentials } from "./preferences";
 
@@ -89,50 +89,55 @@ async function throttleRequest(): Promise<void> {
 }
 
 export async function authenticate(): Promise<string> {
+  const credentials = getLibreViewCredentials();
+  
+  // Check if we have a valid cached token
+  if (cachedToken && (Date.now() - lastTokenTime) < TOKEN_EXPIRY) {
+    return cachedToken;
+  }
+
+  if (!credentials?.username || !credentials?.password) {
+    throw new Error('Missing LibreView credentials');
+  }
+
+  await throttleRequest();
+
   try {
-    // Check cache first
-    const now = Date.now();
-    if (cachedToken && (now - lastTokenTime) < TOKEN_EXPIRY) {
-      return cachedToken;
+    const response = await fetch(`${API_BASE}/llu/auth/login`, {
+      method: 'POST',
+      headers: API_HEADERS,
+      body: JSON.stringify({
+        email: credentials.username,
+        password: credentials.password
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Authentication failed: ${response.status} ${response.statusText}`);
     }
 
-    // Safety check for credentials
-    const credentials = getLibreViewCredentials();
-    if (!credentials?.username || !credentials?.password) {
-      throw new Error('Missing LibreView credentials');
+    const data = await response.json();
+    if (!data?.data?.authTicket?.token) {
+      throw new Error('Invalid authentication response - no token found');
     }
 
-    await throttleRequest();
+    const token = data.data.authTicket.token;
+    cachedToken = token;
+    lastTokenTime = Date.now();
+    backoffDelay = INITIAL_BACKOFF_DELAY;
+    consecutiveFailures = 0;
     
-    const response = await axios.post(
-      `${API_BASE}/llu/auth/login`,
-      { email: credentials.username, password: credentials.password },
-      { 
-        headers: API_HEADERS,
-        timeout: 10000 // 10 second timeout
-      }
-    );
-
-    if (response.status === 200 && response.data?.data?.authTicket?.token) {
-      cachedToken = response.data.data.authTicket.token;
-      lastTokenTime = now;
-      backoffDelay = INITIAL_BACKOFF_DELAY; // Reset backoff on success
-      consecutiveFailures = 0; // Reset failure count
-      return cachedToken;
-    }
-    
-    throw new Error('Authentication failed: Invalid response format');
+    return token;
   } catch (error: any) {
     consecutiveFailures++;
     
-    if (error.response?.status === 429 || error.response?.status === 430) {
+    if (error.status === 429 || error.status === 430) {
       console.log(`Rate limited, waiting ${backoffDelay/1000}s before retry...`);
       await wait(backoffDelay);
       backoffDelay = Math.min(backoffDelay * 2, MAX_BACKOFF_DELAY);
       return authenticate();
     }
     
-    // Reset backoff delay on non-rate-limit errors
     backoffDelay = INITIAL_BACKOFF_DELAY;
     throw error;
   }
@@ -141,13 +146,11 @@ export async function authenticate(): Promise<string> {
 export async function fetchGlucoseData(): Promise<GlucoseReading[]> {
   console.log('fetchGlucoseData called');
   
-  // If there's already a fetch in progress, return that promise
   if (isFetching && pendingFetch) {
     console.log('Reusing pending fetch');
     return pendingFetch;
   }
 
-  // Check if cache is valid
   const now = Date.now();
   if (cachedGlucoseData && (now - lastGlucoseTime) < GLUCOSE_CACHE_EXPIRY) {
     console.log('Using cached data');
@@ -161,10 +164,7 @@ export async function fetchGlucoseData(): Promise<GlucoseReading[]> {
       try {
         await throttleRequest();
         console.log('Getting auth token');
-        const token = await authenticate().catch(error => {
-          console.error('Authentication failed:', error);
-          throw error;
-        });
+        const token = await authenticate();
         
         if (!token) {
           console.error('Failed to get auth token');
@@ -175,19 +175,18 @@ export async function fetchGlucoseData(): Promise<GlucoseReading[]> {
         const authHeaders = { ...API_HEADERS, Authorization: `Bearer ${token}` };
 
         console.log('Getting connections...');
-        const connectionsResponse = await axios.get<ConnectionsResponse>(
-          `${API_BASE}/llu/connections`,
-          { 
-            headers: authHeaders,
-            timeout: 10000
-          }
-        ).catch(error => {
-          console.error('Connections request failed:', error.message);
-          throw error;
+        const connectionsResponse = await fetch(`${API_BASE}/llu/connections`, { 
+          headers: authHeaders
         });
+
+        if (!connectionsResponse.ok) {
+          throw new Error(`Connections request failed: ${connectionsResponse.status} ${connectionsResponse.statusText}`);
+        }
         
+        const connectionsData = await connectionsResponse.json();
         console.log('Got connections response');
-        const patientId = connectionsResponse.data?.data?.[0]?.patientId;
+        
+        const patientId = connectionsData?.data?.[0]?.patientId;
         if (!patientId) {
           console.error('No patient ID found in response');
           throw new Error('No LibreLinkUp connection found');
@@ -199,28 +198,25 @@ export async function fetchGlucoseData(): Promise<GlucoseReading[]> {
         startDate.setDate(endDate.getDate() - 1);
 
         console.log('Requesting glucose data');
-        const glucoseResponse = await axios.get<GlucoseResponse>(
-          `${API_BASE}/llu/connections/${patientId}/graph`,
+        const glucoseResponse = await fetch(
+          `${API_BASE}/llu/connections/${patientId}/graph?period=day&startDate=${format(startDate, 'yyyy-MM-dd')}&endDate=${format(endDate, 'yyyy-MM-dd')}`,
           {
-            headers: authHeaders,
-            timeout: 10000,
-            params: {
-              period: 'custom',
-              startDate: startDate.toISOString(),
-              endDate: endDate.toISOString()
-            }
+            headers: authHeaders
           }
-        ).catch(error => {
-          console.error('Glucose request failed:', error.message);
-          throw error;
-        });
+        );
+
+        if (!glucoseResponse.ok) {
+          throw new Error(`Glucose request failed: ${glucoseResponse.status} ${glucoseResponse.statusText}`);
+        }
+
+        const glucoseData = await glucoseResponse.json();
         console.log('Got glucose response');
 
-        if (!glucoseResponse.data?.data?.graphData) {
+        if (!glucoseData?.data?.graphData) {
           throw new Error('No glucose data available in response');
         }
 
-        const readings = glucoseResponse.data.data.graphData;
+        const readings = glucoseData.data.graphData;
         
         if (!Array.isArray(readings) || readings.length === 0) {
           throw new Error('Invalid or empty glucose readings received');
@@ -243,9 +239,9 @@ export async function fetchGlucoseData(): Promise<GlucoseReading[]> {
         
         return validReadings;
       } catch (error: any) {
-        consecutiveFailures++;
+        console.error('Error fetching glucose data:', error);
         
-        if (error.response?.status === 429 || error.response?.status === 430) {
+        if (error.status === 429 || error.status === 430) {
           console.log(`Rate limited, waiting ${backoffDelay/1000}s before retry...`);
           
           if (cachedGlucoseData && (Date.now() - lastGlucoseTime) < GLUCOSE_CACHE_EXPIRY * 3) {
@@ -266,19 +262,16 @@ export async function fetchGlucoseData(): Promise<GlucoseReading[]> {
         }
         
         throw error;
+      } finally {
+        isFetching = false;
+        pendingFetch = null;
       }
     })();
 
-    const result = await pendingFetch;
-    return result;
-
-  } catch (error: any) {
-    isFetching = false;
-    pendingFetch = null;
+    return pendingFetch;
+  } catch (error) {
+    console.error('Error in fetchGlucoseData:', error);
     throw error;
-  } finally {
-    isFetching = false;
-    pendingFetch = null;
   }
 }
 
