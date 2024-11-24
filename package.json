@@ -12,12 +12,6 @@
   "license": "MIT",
   "commands": [
     {
-      "name": "diabetes",
-      "title": "View Glucose Readings",
-      "description": "Show glucose readings from LibreView",
-      "mode": "view"
-    },
-    {
       "name": "menubar",
       "title": "Glucose Menu Bar",
       "description": "Show latest glucose reading in menu bar",

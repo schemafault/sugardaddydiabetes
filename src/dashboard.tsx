@@ -1,9 +1,10 @@
-import { Detail } from "@raycast/api";
+import { List } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { glucoseStore } from "./store";
 import { GlucoseReading } from "./types";
 import { format } from "date-fns";
 import { getLibreViewCredentials } from "./preferences";
+import { Action, ActionPanel, Icon } from "@raycast/api";
 
 export default function Command() {
   const [readings, setReadings] = useState<GlucoseReading[]>([]);
@@ -25,24 +26,13 @@ export default function Command() {
     fetchData();
   }, []);
 
-  const generateBarChart = () => {
-    if (readings.length === 0) return "No data available";
-
-    const last24Readings = readings.slice(0, 24).reverse();
-    const chartHeight = 8;
-
-    return last24Readings.map(reading => {
-      const value = unit === 'mmol' ? reading.Value : reading.ValueInMgPerDl;
-      const barHeight = unit === 'mmol' 
-        ? Math.round((value / 20) * chartHeight)  // For mmol/L (0-20 range)
-        : Math.round((value / 360) * chartHeight); // For mg/dL (0-360 range)
-      
-      const bar = '█'.repeat(Math.min(barHeight, chartHeight)) + 
-                  '░'.repeat(Math.max(0, chartHeight - barHeight));
-      
-      const datetime = format(new Date(reading.Timestamp), 'MM/dd HH:mm');
-      return `${bar} ${value.toFixed(1)}${unit === 'mmol' ? ' mmol/L' : ' mg/dL'} (${datetime})`;
-    }).join('\n');
+  const getValueColor = (value: number): string => {
+    const lowThreshold = unit === 'mmol' ? 3.9 : 70;
+    const highThreshold = unit === 'mmol' ? 10.0 : 180;
+    
+    if (value < lowThreshold) return '#EAB308'; // Yellow for low
+    if (value > highThreshold) return '#EF4444'; // Red for high
+    return '#10B981'; // Green for normal
   };
 
   const calculateStats = () => {
@@ -68,23 +58,78 @@ export default function Command() {
   };
 
   const stats = calculateStats();
-  const markdown = `
-# Glucose Dashboard
 
-${stats ? `
-## Current Statistics (Last 24h)
-- Average: ${stats.average} ${unit === 'mmol' ? 'mmol/L' : 'mg/dL'}
-- Time in Range: ${stats.timeInRange}%
-- Below Range: ${stats.lowPercentage}%
-- Above Range: ${stats.highPercentage}%
-- Last Updated: ${format(new Date(), 'MMM d, h:mm a')}
-` : ''}
+  return (
+    <List
+      isLoading={isLoading}
+      searchBarPlaceholder="Search glucose readings..."
+    >
+      <List.Section title="Statistics (Last 24h)">
+        {stats && (
+          <>
+            <List.Item
+              title={`Average: ${stats.average} ${unit === 'mmol' ? 'mmol/L' : 'mg/dL'}`}
+              icon={Icon.Circle}
+            />
+            <List.Item
+              title={`Time in Range: ${stats.timeInRange}%`}
+              icon={Icon.Circle}
+            />
+            <List.Item
+              title={`Below Range: ${stats.lowPercentage}%`}
+              icon={Icon.Circle}
+            />
+            <List.Item
+              title={`Above Range: ${stats.highPercentage}%`}
+              icon={Icon.Circle}
+            />
+            <List.Item
+              title={`Last Updated: ${format(new Date(), 'MMM d, h:mm a')}`}
+              icon={Icon.Clock}
+            />
+          </>
+        )}
+      </List.Section>
+      
+      <List.Section title="Readings">
+        {readings.map((reading, index) => {
+          const value = unit === 'mmol' ? reading.Value : reading.ValueInMgPerDl;
+          const trend = index > 0 
+            ? value > readings[index - 1].Value + 0.3 
+              ? "↑" 
+              : value < readings[index - 1].Value - 0.3 
+                ? "↓" 
+                : "→"
+            : "→";
 
-## Last 24 Hours Trend
-\`\`\`
-${generateBarChart()}
-\`\`\`
-`;
-
-  return <Detail markdown={markdown} isLoading={isLoading} />;
+          return (
+            <List.Item
+              key={reading.Timestamp}
+              title={`${value.toFixed(1)} ${unit === 'mmol' ? 'mmol/L' : 'mg/dL'} ${trend}`}
+              subtitle={format(new Date(reading.Timestamp), 'MMM d, h:mm a')}
+              icon={{ source: Icon.Circle, tintColor: getValueColor(value) }}
+              accessories={[
+                {
+                  text: reading.TrendArrow || '-',
+                  tooltip: "Trend direction"
+                }
+              ]}
+              actions={
+                <ActionPanel>
+                  <Action.CopyToClipboard
+                    title="Copy Reading"
+                    content={`${value.toFixed(1)} ${unit === 'mmol' ? 'mmol/L' : 'mg/dL'}`}
+                  />
+                  <Action.CopyToClipboard
+                    title="Copy Time"
+                    content={format(new Date(reading.Timestamp), 'MMM d, h:mm a')}
+                  />
+                </ActionPanel>
+              }
+            />
+          );
+        })}
+      </List.Section>
+    </List>
+  );
 } 
