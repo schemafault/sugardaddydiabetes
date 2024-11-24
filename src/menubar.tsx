@@ -1,8 +1,8 @@
 import { format } from "date-fns";
-import { MenuBarExtra, showToast, Toast, Icon, openExtensionPreferences, Color, popToRoot, open } from "@raycast/api";
+import { MenuBarExtra, showToast, Toast, Icon, openExtensionPreferences, Color, popToRoot, open, preferences } from "@raycast/api";
 import { useEffect, useState, useCallback } from "react";
 import { getLibreViewCredentials } from "./preferences";
-import { logout } from "./auth";
+import { logout, isLoggedOut as checkLoggedOut, attemptLogin } from "./auth";
 import { glucoseStore } from "./store";
 import { GlucoseReading } from "./types";
 
@@ -62,6 +62,7 @@ export default function Command() {
   const [stats, setStats] = useState<GlucoseStats | null>(null);
   const { unit } = getLibreViewCredentials();
   const [isVisible, setIsVisible] = useState(true);
+  const [isLoggedOut, setIsLoggedOut] = useState(false);
 
   const getTrendIcon = useCallback(() => {
     if (readings.length < 2) return "→";
@@ -74,6 +75,16 @@ export default function Command() {
 
   const fetchData = useCallback(async (forceRefresh = false) => {
     try {
+      const loggedOutState = await checkLoggedOut();
+      if (loggedOutState) {
+        const loginSuccess = await attemptLogin();
+        if (!loginSuccess) {
+          setIsLoggedOut(true);
+          return;
+        }
+      }
+      setIsLoggedOut(false);
+
       setIsLoading(true);
       console.log('Menubar: Starting data fetch');
       const data = await glucoseStore.getReadings(forceRefresh);
@@ -109,7 +120,9 @@ export default function Command() {
       console.error('Menubar: Error in fetchData:', errorMessage);
       setError(errorMessage);
       
-      if (!errorMessage.includes('Rate limited')) {
+      if (errorMessage.includes('Missing LibreView credentials')) {
+        setIsLoggedOut(true);
+      } else if (!errorMessage.includes('Rate limited')) {
         await showToast({ 
           style: Toast.Style.Failure, 
           title: "Error fetching data",
@@ -128,6 +141,28 @@ export default function Command() {
   }, [fetchData]);
 
   if (!isVisible) return null;
+
+  if (isLoggedOut) {
+    return (
+      <MenuBarExtra
+        icon={Icon.Person}
+        title="Login Required"
+      >
+        <MenuBarExtra.Section>
+          <MenuBarExtra.Item
+            title="Enter LibreView Credentials"
+            icon={Icon.Person}
+            onAction={openExtensionPreferences}
+          />
+          <MenuBarExtra.Item
+            title="Quit"
+            icon={Icon.XmarkCircle}
+            onAction={() => setIsVisible(false)}
+          />
+        </MenuBarExtra.Section>
+      </MenuBarExtra>
+    );
+  }
 
   return (
     <MenuBarExtra
@@ -194,12 +229,23 @@ export default function Command() {
         <MenuBarExtra.Item
           title="Preferences"
           icon={Icon.Gear}
-          onAction={openExtensionPreferences}
+          onAction={async () => {
+            openExtensionPreferences();
+            setTimeout(async () => {
+              const success = await attemptLogin();
+              if (success) {
+                fetchData(true);
+              }
+            }, 1000);
+          }}
         />
         <MenuBarExtra.Item
           title="Logout"
           icon={Icon.Terminal}
-          onAction={logout}
+          onAction={async () => {
+            await logout();
+            setIsLoggedOut(true);
+          }}
         />
         <MenuBarExtra.Item
           title="Quit"

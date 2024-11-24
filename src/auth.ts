@@ -11,11 +11,22 @@ const API_HEADERS = {
 };
 
 const LOGGED_OUT_KEY = 'logged_out';
+const AUTH_TOKEN_KEY = 'auth_token';
 
 interface AuthResponse {
+  status: number;
   data: {
+    user: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+      // ... other user fields
+    };
     authTicket: {
       token: string;
+      expires: number;
+      duration: number;
     };
   };
 }
@@ -24,10 +35,15 @@ function isAuthResponse(data: any): data is AuthResponse {
   return (
     typeof data === 'object' &&
     data !== null &&
-    'authTicket' in data &&
-    typeof data.authTicket === 'object' &&
-    data.authTicket !== null &&
-    'token' in data.authTicket
+    'status' in data &&
+    'data' in data &&
+    typeof data.data === 'object' &&
+    data.data !== null &&
+    'authTicket' in data.data &&
+    typeof data.data.authTicket === 'object' &&
+    data.data.authTicket !== null &&
+    'token' in data.data.authTicket &&
+    typeof data.data.authTicket.token === 'string'
   );
 }
 
@@ -39,38 +55,40 @@ export async function authenticate(): Promise<string> {
     console.error('No credentials found');
     throw new Error('Missing LibreView credentials');
   }
-  console.log('Got credentials, attempting login...');
   
   try {
     console.log('Sending auth request...');
     const response = await fetch(`${API_BASE}/llu/auth/login`, {
       method: 'POST',
-      headers: API_HEADERS,
+      headers: {
+        ...API_HEADERS,
+        'Accept': 'application/json'
+      },
       body: JSON.stringify({
         email: credentials.username,
         password: credentials.password
       })
     });
 
+    const data = await response.json();
+    console.log('Auth response:', JSON.stringify(data, null, 2));
+
     if (!response.ok) {
-      console.error('Auth request failed:', response.status, response.statusText);
-      throw new Error(`Authentication failed: ${response.status} ${response.statusText}`);
+      throw new Error(data.message || `Authentication failed: ${response.status}`);
     }
 
-    console.log('Got auth response...');
-    const data = await response.json();
     if (!isAuthResponse(data)) {
-      throw new Error('Invalid response format');
+      console.error('Invalid response format:', data);
+      throw new Error('Invalid authentication response format');
     }
-    console.log('Auth response data:', JSON.stringify(data, null, 2));
-    
-    if (!data?.data?.authTicket?.token) {
-      console.error('No token in auth response');
-      throw new Error('Invalid authentication response - no token');
+
+    const token = data.data.authTicket.token;
+    if (!token) {
+      throw new Error('No token in authentication response');
     }
 
     console.log('Authentication successful');
-    return data.data.authTicket.token;
+    return token;
   } catch (error) {
     console.error('Authentication error:', error);
     throw error;
@@ -80,10 +98,12 @@ export async function authenticate(): Promise<string> {
 export async function logout() {
   try {
     await clearLocalStorage();
+    await LocalStorage.removeItem(AUTH_TOKEN_KEY);
     await LocalStorage.setItem(LOGGED_OUT_KEY, 'true');
     await showToast({
       style: Toast.Style.Success,
-      title: "Logged out successfully"
+      title: "Logged out successfully",
+      message: "Please quit and restart the menu bar app"
     });
   } catch (error) {
     console.error('Error during logout:', error);
@@ -95,15 +115,51 @@ export async function logout() {
   }
 }
 
-export async function isLoggedOut(): Promise<boolean> {
+type IsLoggedOutFunction = () => Promise<boolean>;
+
+export const isLoggedOut: IsLoggedOutFunction = async () => {
   try {
     const value = await LocalStorage.getItem(LOGGED_OUT_KEY);
     return value === 'true';
   } catch {
     return false;
   }
-}
+};
 
 export async function clearLoggedOutState() {
   await LocalStorage.removeItem(LOGGED_OUT_KEY);
+}
+
+export async function attemptLogin(): Promise<boolean> {
+  try {
+    const credentials = getLibreViewCredentials();
+    if (!credentials?.username || !credentials?.password) {
+      return false;
+    }
+
+    // Clear logged out state first
+    await clearLoggedOutState();
+    
+    // Attempt authentication
+    const token = await authenticate();
+    if (token) {
+      await LocalStorage.setItem(AUTH_TOKEN_KEY, token);
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Successfully logged in",
+        message: "Your LibreView credentials are valid"
+      });
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Login attempt failed:', error);
+    await LocalStorage.setItem(LOGGED_OUT_KEY, 'true');
+    await showToast({
+      style: Toast.Style.Failure,
+      title: "Login failed",
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+    return false;
+  }
 }

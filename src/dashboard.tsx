@@ -1,24 +1,39 @@
-import { List } from "@raycast/api";
+import { List, Action, ActionPanel, Icon, openExtensionPreferences } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { glucoseStore } from "./store";
 import { GlucoseReading } from "./types";
 import { format } from "date-fns";
 import { getLibreViewCredentials } from "./preferences";
-import { Action, ActionPanel, Icon } from "@raycast/api";
+import { isLoggedOut as checkLoggedOut, attemptLogin } from "./auth";
 
 export default function Command() {
   const [readings, setReadings] = useState<GlucoseReading[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggedOut, setIsLoggedOut] = useState(false);
   const { unit } = getLibreViewCredentials();
 
   useEffect(() => {
     async function fetchData() {
       try {
+        const loggedOutState = await checkLoggedOut();
+        if (loggedOutState) {
+          // Try to login if we have credentials
+          const loginSuccess = await attemptLogin();
+          if (!loginSuccess) {
+            setIsLoggedOut(true);
+            return;
+          }
+        }
+        setIsLoggedOut(false);
+
         setIsLoading(true);
         const data = await glucoseStore.getReadings(false);
         setReadings(data);
       } catch (error) {
         console.error("Error fetching data:", error);
+        if (error instanceof Error && error.message.includes('Missing LibreView credentials')) {
+          setIsLoggedOut(true);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -58,6 +73,27 @@ export default function Command() {
   };
 
   const stats = calculateStats();
+
+  if (isLoggedOut) {
+    return (
+      <List>
+        <List.EmptyView
+          icon={Icon.Person}
+          title="LibreView Login Required"
+          description="Please enter your LibreView credentials in the extension preferences. These are the same credentials you use to log into LibreView website."
+          actions={
+            <ActionPanel>
+              <Action
+                title="Enter LibreView Credentials"
+                icon={Icon.Gear}
+                onAction={openExtensionPreferences}
+              />
+            </ActionPanel>
+          }
+        />
+      </List>
+    );
+  }
 
   return (
     <List
