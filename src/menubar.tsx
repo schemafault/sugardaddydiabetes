@@ -42,7 +42,9 @@ const calculateStats = (data: GlucoseReading[], unit: string): GlucoseStats => {
   };
 };
 
-const getValueColor = (value: number, unit: string): { source: Icon; tintColor: Color } => {
+const getValueColor = (value: number | null, unit: string): { source: Icon; tintColor: Color } => {
+  if (value === null) return { source: Icon.Circle, tintColor: Color.SecondaryText };
+  
   const lowThreshold = unit === 'mmol' ? 3.9 : 70;
   const highThreshold = unit === 'mmol' ? 10.0 : 180;
   
@@ -63,12 +65,12 @@ export default function Command() {
 
   const getTrendIcon = useCallback(() => {
     if (readings.length < 2) return "→";
-    const current = readings[0].Value;
-    const previous = readings[1].Value;
-    if (current > previous + 0.3) return "↑";
-    if (current < previous - 0.3) return "↓";
+    const current = unit === 'mmol' ? readings[0].Value : readings[0].ValueInMgPerDl;
+    const previous = unit === 'mmol' ? readings[1].Value : readings[1].ValueInMgPerDl;
+    if (current > previous + (unit === 'mmol' ? 0.3 : 5)) return "↑";
+    if (current < previous - (unit === 'mmol' ? 0.3 : 5)) return "↓";
     return "→";
-  }, [readings]);
+  }, [readings, unit]);
 
   const fetchData = useCallback(async (forceRefresh = false) => {
     try {
@@ -77,11 +79,25 @@ export default function Command() {
       const data = await glucoseStore.getReadings(forceRefresh);
       
       if (data && data.length > 0) {
-        console.log('Menubar: Got data, processing...');
+        console.log('Menubar: Latest readings:', data.slice(0, 3).map(r => ({
+          value: r.Value,
+          mgdl: r.ValueInMgPerDl,
+          time: new Date(r.Timestamp).toLocaleTimeString(),
+          unit
+        })));
+        
         setReadings(data);
         const latest = data[0];
         const value = unit === 'mmol' ? latest.Value : latest.ValueInMgPerDl;
         setLatestReading(value.toFixed(1));
+        
+        console.log('Menubar: Setting latest reading:', {
+          raw: value,
+          formatted: value.toFixed(1),
+          timestamp: new Date(latest.Timestamp).toLocaleTimeString(),
+          unit
+        });
+        
         setLastUpdateTime(new Date(latest.Timestamp));
         setStats(calculateStats(data, unit));
         setError(null);
@@ -115,7 +131,7 @@ export default function Command() {
 
   return (
     <MenuBarExtra
-      icon={error ? Icon.ExclamationMark : getValueColor(Number(latestReading), unit)}
+      icon={error ? Icon.ExclamationMark : getValueColor(latestReading ? Number(latestReading) : null, unit)}
       title={latestReading ? `${latestReading}${unit === 'mmol' ? ' mmol/L' : ' mg/dL'} ${getTrendIcon()}` : error ? "⚠️ Error" : "Loading..."}
       tooltip={error ? `Error: ${error}` : lastUpdateTime ? `Last updated: ${lastUpdateTime.toLocaleTimeString()}` : "Loading glucose data..."}
       isLoading={isLoading}
