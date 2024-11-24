@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { MenuBarExtra, showToast, Toast, Icon, openExtensionPreferences, Color, popToRoot } from "@raycast/api";
+import { MenuBarExtra, showToast, Toast, Icon, openExtensionPreferences, Color, popToRoot, open } from "@raycast/api";
 import { useEffect, useState, useCallback } from "react";
 import { getLibreViewCredentials } from "./preferences";
 import { logout } from "./auth";
@@ -182,6 +182,14 @@ export default function Command() {
           title="Refresh"
           icon={Icon.ArrowClockwise}
           onAction={() => fetchData(true)}
+        />
+        <MenuBarExtra.Item
+          title="Open Detailed View"
+          icon={Icon.List}
+          onAction={() => {
+            open("raycast://extensions/magi/sugardaddydiabetes/dashboard");
+            popToRoot();
+          }}
         />
         <MenuBarExtra.Item
           title="Preferences"

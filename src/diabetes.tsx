@@ -102,7 +102,7 @@ export default function Command() {
                 />
                 <Action
                   title="Logout"
-                  icon={Icon.ExitFullScreen}
+                  icon={Icon.Terminal}
                   onAction={logout}
                 />
               </ActionPanel>

@@ -24,6 +24,12 @@
       "mode": "menu-bar",
       "interval": "5m",
       "persistent": true
+    },
+    {
+      "name": "dashboard",
+      "title": "Open Dashboard",
+      "description": "Shows detailed glucose statistics and charts",
+      "mode": "view"
     }
   ],
   "preferences": [

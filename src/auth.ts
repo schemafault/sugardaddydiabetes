@@ -20,6 +20,17 @@ interface AuthResponse {
   };
 }
 
+function isAuthResponse(data: any): data is AuthResponse {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'authTicket' in data &&
+    typeof data.authTicket === 'object' &&
+    data.authTicket !== null &&
+    'token' in data.authTicket
+  );
+}
+
 export async function authenticate(): Promise<string> {
   console.log('Authenticating...');
   const credentials = getLibreViewCredentials();
@@ -47,7 +58,10 @@ export async function authenticate(): Promise<string> {
     }
 
     console.log('Got auth response...');
-    const data: AuthResponse = await response.json();
+    const data = await response.json();
+    if (!isAuthResponse(data)) {
+      throw new Error('Invalid response format');
+    }
     console.log('Auth response data:', JSON.stringify(data, null, 2));
     
     if (!data?.data?.authTicket?.token) {
