@@ -129,12 +129,12 @@ export default function Command() {
       <List.Section title="Readings">
         {readings.map((reading, index) => {
           const value = unit === 'mmol' ? reading.Value : reading.ValueInMgPerDl;
+          
+          // Use the same trend calculation as menubar
           const trend = index > 0 
-            ? value > readings[index - 1].Value + 0.3 
-              ? "↑" 
-              : value < readings[index - 1].Value - 0.3 
-                ? "↓" 
-                : "→"
+            ? (unit === 'mmol')
+              ? (value > readings[index - 1].Value + 0.3 ? "↑" : value < readings[index - 1].Value - 0.3 ? "↓" : "→")
+              : (value > readings[index - 1].ValueInMgPerDl + 5 ? "↑" : value < readings[index - 1].ValueInMgPerDl - 5 ? "↓" : "→")
             : "→";
 
           return (
@@ -143,12 +143,6 @@ export default function Command() {
               title={`${value.toFixed(1)} ${unit === 'mmol' ? 'mmol/L' : 'mg/dL'} ${trend}`}
               subtitle={format(new Date(reading.Timestamp), 'MMM d, h:mm a')}
               icon={{ source: Icon.Circle, tintColor: getValueColor(value) }}
-              accessories={[
-                {
-                  text: reading.TrendArrow || '-',
-                  tooltip: "Trend direction"
-                }
-              ]}
               actions={
                 <ActionPanel>
                   <Action.CopyToClipboard
