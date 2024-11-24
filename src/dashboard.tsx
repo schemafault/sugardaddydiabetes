@@ -53,22 +53,21 @@ export default function Command() {
   const calculateStats = () => {
     if (readings.length === 0) return null;
 
-    const last24h = readings.slice(0, 24);
-    const values = last24h.map(r => unit === 'mmol' ? r.Value : r.ValueInMgPerDl);
-    
+    const values = readings.map(r => unit === 'mmol' ? r.Value : r.ValueInMgPerDl);
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    
     const lowThreshold = unit === 'mmol' ? 3.9 : 70;
     const highThreshold = unit === 'mmol' ? 10.0 : 180;
     
-    const low = last24h.filter(r => (unit === 'mmol' ? r.Value : r.ValueInMgPerDl) < lowThreshold).length;
-    const high = last24h.filter(r => (unit === 'mmol' ? r.Value : r.ValueInMgPerDl) > highThreshold).length;
-    const normal = last24h.length - low - high;
+    const low = readings.filter(r => (unit === 'mmol' ? r.Value : r.ValueInMgPerDl) < lowThreshold).length;
+    const high = readings.filter(r => (unit === 'mmol' ? r.Value : r.ValueInMgPerDl) > highThreshold).length;
+    const normal = readings.length - low - high;
 
     return {
       average: avg.toFixed(1),
-      timeInRange: ((normal / last24h.length) * 100).toFixed(1),
-      lowPercentage: ((low / last24h.length) * 100).toFixed(1),
-      highPercentage: ((high / last24h.length) * 100).toFixed(1)
+      timeInRange: ((normal / readings.length) * 100).toFixed(1),
+      lowPercentage: ((low / readings.length) * 100).toFixed(1),
+      highPercentage: ((high / readings.length) * 100).toFixed(1)
     };
   };
 
