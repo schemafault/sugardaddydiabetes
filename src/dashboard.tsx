@@ -1,4 +1,4 @@
-import { List, Action, ActionPanel, Icon, openExtensionPreferences, Form, useNavigation, environment, showToast, Toast, preferences, getPreferenceValues, LocalStorage, popToRoot } from "@raycast/api";
+import { List, Action, ActionPanel, Icon, Form, showToast, Toast, LocalStorage, popToRoot } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { glucoseStore } from "./store";
 import { GlucoseReading } from "./types";
@@ -39,7 +39,7 @@ export default function Command() {
 
   useEffect(() => {
     fetchData();
-    
+
     // Safely manage LocalStorage
     const setDashboardActive = async () => {
       try {
@@ -48,7 +48,7 @@ export default function Command() {
         console.error("Error setting dashboard active state:", error);
       }
     };
-    
+
     setDashboardActive();
 
     return () => {
@@ -108,7 +108,7 @@ export default function Command() {
                   await LocalStorage.setItem("username", values.email);
                   await LocalStorage.setItem("password", values.password);
                   await LocalStorage.setItem("unit", values.unit || "mmol");
-                  
+
                   const loginSuccess = await attemptLogin();
                   if (loginSuccess) {
                     try {
@@ -116,11 +116,11 @@ export default function Command() {
                       await fetchData();
                       await LocalStorage.setItem("menubar-enabled", "true");
                       popToRoot();
-                      
+
                       await showToast({
                         style: Toast.Style.Success,
                         title: "Login Successful",
-                        message: "Loading your glucose data..."
+                        message: "Loading your glucose data...",
                       });
                     } catch (error) {
                       console.error("Error after login:", error);
@@ -150,17 +150,8 @@ export default function Command() {
           </ActionPanel>
         }
       >
-        <Form.TextField
-          id="email"
-          title="Email"
-          placeholder="Enter your LibreView email"
-          autoFocus
-        />
-        <Form.PasswordField
-          id="password"
-          title="Password"
-          placeholder="Enter your LibreView password"
-        />
+        <Form.TextField id="email" title="Email" placeholder="Enter your LibreView email" autoFocus />
+        <Form.PasswordField id="password" title="Password" placeholder="Enter your LibreView password" />
         <Form.Dropdown id="unit" title="Glucose Unit" defaultValue="mmol">
           <Form.Dropdown.Item value="mmol" title="mmol/L" />
           <Form.Dropdown.Item value="mgdl" title="mg/dL" />

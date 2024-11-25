@@ -39,4 +39,4 @@ describe("Preferences", () => {
     expect(prefs.lowThreshold).toBe("70");
     expect(prefs.highThreshold).toBe("180");
   });
-}); 
+});

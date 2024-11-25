@@ -8,9 +8,7 @@ import {
   Color,
   popToRoot,
   open,
-  preferences,
   getPreferenceValues,
-  LocalStorage,
 } from "@raycast/api";
 import { useEffect, useState, useCallback } from "react";
 import { getLibreViewCredentials } from "./preferences";
@@ -74,23 +72,23 @@ const getValueColor = (value: number | null, unit: string): { source: Icon; tint
 const checkGlucoseAlert = (
   reading: number,
   unit: string,
-  prefs: Preferences
+  prefs: Preferences,
 ): { shouldAlert: boolean; message: string; type: "low" | "high" | null } => {
   const lowThreshold = parseFloat(prefs.lowThreshold);
   const highThreshold = parseFloat(prefs.highThreshold);
-  
+
   if (reading <= lowThreshold) {
     return {
       shouldAlert: true,
       message: `Low glucose alert: ${reading.toFixed(1)} ${unit === "mmol" ? "mmol/L" : "mg/dL"}`,
-      type: "low"
+      type: "low",
     };
   }
   if (reading >= highThreshold) {
     return {
       shouldAlert: true,
       message: `High glucose alert: ${reading.toFixed(1)} ${unit === "mmol" ? "mmol/L" : "mg/dL"}`,
-      type: "high"
+      type: "high",
     };
   }
   return { shouldAlert: false, message: "", type: null };
@@ -137,7 +135,7 @@ export default function Command() {
         if (data && data.length > 0) {
           const latestReading = data[0];
           const previousReading = data[1];
-          
+
           const prefs = getPreferenceValues<Preferences>();
           if (prefs.alertsEnabled) {
             const currentValue = unit === "mmol" ? latestReading.Value : latestReading.ValueInMgPerDl;
@@ -147,30 +145,31 @@ export default function Command() {
               lowThreshold: prefs.lowThreshold,
               highThreshold: prefs.highThreshold,
               alertsEnabled: prefs.alertsEnabled,
-              forceRefresh
+              forceRefresh,
             });
-            
+
             const { shouldAlert, message, type } = checkGlucoseAlert(currentValue, unit, prefs);
             console.log("Alert Result:", { shouldAlert, message, type });
-            
+
             const now = Date.now();
             const lastAlert = lastAlertTime[type || ""] || 0;
             const timeSinceLastAlert = now - lastAlert;
-            
-            if (shouldAlert && (
-              forceRefresh || 
-              ((!previousReading || latestReading.Timestamp !== previousReading.Timestamp) && 
-               timeSinceLastAlert > 60000)
-            )) {
+
+            if (
+              shouldAlert &&
+              (forceRefresh ||
+                ((!previousReading || latestReading.Timestamp !== previousReading.Timestamp) &&
+                  timeSinceLastAlert > 60000))
+            ) {
               console.log("Showing alert toast", { forceRefresh, timeSinceLastAlert });
-              
+
               if (type) {
-                setLastAlertTime(prev => ({
+                setLastAlertTime((prev) => ({
                   ...prev,
-                  [type]: now
+                  [type]: now,
                 }));
               }
-              
+
               await showToast({
                 style: Toast.Style.Failure,
                 title: type === "low" ? "Low Glucose Alert" : "High Glucose Alert",

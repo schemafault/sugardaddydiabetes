@@ -33,9 +33,9 @@ describe("GlucoseStore", () => {
       Timestamp: new Date().toISOString(),
       unit: "mmol",
     };
-    
+
     (libreview.fetchGlucoseData as jest.Mock).mockResolvedValue([mockReading]);
-    
+
     const readings = await glucoseStore.getReadings();
     expect(readings).toEqual([mockReading]);
     expect(libreview.fetchGlucoseData).toHaveBeenCalledTimes(1);

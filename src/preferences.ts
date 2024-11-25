@@ -12,11 +12,11 @@ export interface LibreViewCredentials {
 export function getLibreViewCredentials(): LibreViewCredentials {
   const prefs = getPreferenceValues<LibreViewCredentials>();
   const unit = prefs.unit;
-  
+
   // Convert thresholds if needed
   let lowThreshold = prefs.lowThreshold;
   let highThreshold = prefs.highThreshold;
-  
+
   // If unit is mgdl and thresholds look like mmol values, convert them
   if (unit === "mgdl" && parseFloat(lowThreshold) < 25) {
     lowThreshold = (parseFloat(lowThreshold) * 18).toFixed(0);
@@ -31,6 +31,6 @@ export function getLibreViewCredentials(): LibreViewCredentials {
   return {
     ...prefs,
     lowThreshold,
-    highThreshold
+    highThreshold,
   };
 }

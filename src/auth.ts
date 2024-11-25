@@ -31,19 +31,19 @@ interface AuthResponse extends Record<string, unknown> {
 }
 
 function isAuthResponse(data: unknown): data is AuthResponse {
-  if (typeof data !== 'object' || data === null) return false;
-  
+  if (typeof data !== "object" || data === null) return false;
+
   const response = data as Record<string, unknown>;
   return (
-    'status' in response &&
-    'data' in response &&
-    typeof response.data === 'object' &&
+    "status" in response &&
+    "data" in response &&
+    typeof response.data === "object" &&
     response.data !== null &&
-    'authTicket' in (response.data as Record<string, unknown>) &&
-    typeof (response.data as Record<string, unknown>).authTicket === 'object' &&
+    "authTicket" in (response.data as Record<string, unknown>) &&
+    typeof (response.data as Record<string, unknown>).authTicket === "object" &&
     (response.data as Record<string, unknown>).authTicket !== null &&
-    'token' in ((response.data as Record<string, unknown>).authTicket as Record<string, unknown>) &&
-    typeof ((response.data as Record<string, unknown>).authTicket as Record<string, unknown>).token === 'string'
+    "token" in ((response.data as Record<string, unknown>).authTicket as Record<string, unknown>) &&
+    typeof ((response.data as Record<string, unknown>).authTicket as Record<string, unknown>).token === "string"
   );
 }
 

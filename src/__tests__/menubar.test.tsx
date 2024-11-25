@@ -92,7 +92,7 @@ describe("MenuBar Command", () => {
       expect.objectContaining({
         style: "failure",
         title: expect.stringContaining("Low Glucose Alert"),
-      })
+      }),
     );
   });
 });
