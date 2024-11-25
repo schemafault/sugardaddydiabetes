@@ -117,7 +117,7 @@
     "typescript": "^5.2.2"
   },
   "scripts": {
-    "build": "ray build -e dist --exclude '**/*.test.ts' --exclude '**/*.test.tsx' --exclude '**/__tests__/**' --exclude '**/__mocks__/**'",
+    "build": "ray build -e dist",
     "dev": "ray develop",
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
@@ -129,6 +129,7 @@
   "files": [
     "dist/**/*.js",
     "dist/**/*.d.ts",
+    "dist/dashboard.js",
     "!dist/**/*.test.js",
     "!dist/**/*.test.ts",
     "!dist/**/__tests__/**",

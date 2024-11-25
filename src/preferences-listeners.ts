@@ -1,6 +1,6 @@
-import { updatePreference } from "@raycast/api";
+import { LocalStorage } from "@raycast/api";
 
 export async function clearThresholds() {
-  await updatePreference("lowThreshold", "");
-  await updatePreference("highThreshold", "");
+  await LocalStorage.setItem("lowThreshold", "");
+  await LocalStorage.setItem("highThreshold", "");
 } 

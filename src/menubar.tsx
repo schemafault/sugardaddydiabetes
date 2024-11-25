@@ -10,6 +10,7 @@ import {
   open,
   preferences,
   getPreferenceValues,
+  LocalStorage,
 } from "@raycast/api";
 import { useEffect, useState, useCallback } from "react";
 import { getLibreViewCredentials } from "./preferences";

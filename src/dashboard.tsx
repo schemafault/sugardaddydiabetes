@@ -39,6 +39,15 @@ export default function Command() {
 
   useEffect(() => {
     fetchData();
+    return () => {
+      // Cleanup when dashboard is unmounted
+      LocalStorage.removeItem("dashboard-active");
+    };
+  }, []);
+
+  useEffect(() => {
+    // Set active state when dashboard opens
+    LocalStorage.setItem("dashboard-active", "true");
   }, []);
 
   const getValueColor = (value: number): string => {
