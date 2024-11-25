@@ -31,7 +31,7 @@ interface AuthResponse {
   };
 }
 
-function isAuthResponse(data: any): data is AuthResponse {
+function isAuthResponse(data: Record<string, unknown>): data is AuthResponse {
   return (
     typeof data === "object" &&
     data !== null &&
