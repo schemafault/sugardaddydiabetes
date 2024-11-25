@@ -165,7 +165,10 @@ export default function Command() {
           <MenuBarExtra.Item
             title="Enter LibreView Credentials"
             icon={Icon.Person}
-            onAction={openExtensionPreferences}
+            onAction={() => {
+              open("raycast://extensions/authormatic/sugardaddydiabetes/dashboard");
+              popToRoot();
+            }}
           />
           <MenuBarExtra.Item title="Quit" icon={Icon.XmarkCircle} onAction={() => setIsVisible(false)} />
         </MenuBarExtra.Section>
@@ -233,7 +236,7 @@ export default function Command() {
           title="Open Detailed View"
           icon={Icon.List}
           onAction={() => {
-            open("raycast://extensions/magi/sugardaddydiabetes/dashboard");
+            open("raycast://extensions/authormatic/sugardaddydiabetes/dashboard");
             popToRoot();
           }}
         />

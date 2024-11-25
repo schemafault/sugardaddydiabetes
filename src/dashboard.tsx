@@ -1,4 +1,4 @@
-import { List, Action, ActionPanel, Icon, openExtensionPreferences } from "@raycast/api";
+import { List, Action, ActionPanel, Icon, openExtensionPreferences, Form, useNavigation, environment, showToast, Toast, preferences, getPreferenceValues, LocalStorage, popToRoot } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { glucoseStore } from "./store";
 import { GlucoseReading } from "./types";
@@ -12,32 +12,32 @@ export default function Command() {
   const [isLoggedOut, setIsLoggedOut] = useState(false);
   const { unit } = getLibreViewCredentials();
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const loggedOutState = await checkLoggedOut();
-        if (loggedOutState) {
-          // Try to login if we have credentials
-          const loginSuccess = await attemptLogin();
-          if (!loginSuccess) {
-            setIsLoggedOut(true);
-            return;
-          }
-        }
-        setIsLoggedOut(false);
-
-        setIsLoading(true);
-        const data = await glucoseStore.getReadings(false);
-        setReadings(data);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-        if (error instanceof Error && error.message.includes("Missing LibreView credentials")) {
+  const fetchData = async () => {
+    try {
+      const loggedOutState = await checkLoggedOut();
+      if (loggedOutState) {
+        const loginSuccess = await attemptLogin();
+        if (!loginSuccess) {
           setIsLoggedOut(true);
+          return;
         }
-      } finally {
-        setIsLoading(false);
       }
+      setIsLoggedOut(false);
+
+      setIsLoading(true);
+      const data = await glucoseStore.getReadings(false);
+      setReadings(data);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      if (error instanceof Error && error.message.includes("Missing LibreView credentials")) {
+        setIsLoggedOut(true);
+      }
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  useEffect(() => {
     fetchData();
   }, []);
 
@@ -75,18 +75,74 @@ export default function Command() {
 
   if (isLoggedOut) {
     return (
-      <List>
-        <List.EmptyView
-          icon={Icon.Person}
-          title="LibreView Login Required"
-          description="Please enter your LibreView credentials in the extension preferences. These are the same credentials you use to log into LibreView website."
-          actions={
-            <ActionPanel>
-              <Action title="Enter Libreview Credentials" icon={Icon.Gear} onAction={openExtensionPreferences} />
-            </ActionPanel>
-          }
+      <Form
+        actions={
+          <ActionPanel>
+            <Action.SubmitForm
+              title="Login"
+              onSubmit={async (values) => {
+                try {
+                  await LocalStorage.setItem("username", values.email);
+                  await LocalStorage.setItem("password", values.password);
+                  await LocalStorage.setItem("unit", values.unit || "mmol");
+                  
+                  const loginSuccess = await attemptLogin();
+                  if (loginSuccess) {
+                    try {
+                      setIsLoggedOut(false);
+                      await fetchData();
+                      await LocalStorage.setItem("menubar-enabled", "true");
+                      popToRoot();
+                      
+                      await showToast({
+                        style: Toast.Style.Success,
+                        title: "Login Successful",
+                        message: "Loading your glucose data..."
+                      });
+                    } catch (error) {
+                      console.error("Error after login:", error);
+                      await showToast({
+                        style: Toast.Style.Failure,
+                        title: "Error Loading Data",
+                        message: error instanceof Error ? error.message : "Unknown error",
+                      });
+                    }
+                  } else {
+                    await showToast({
+                      style: Toast.Style.Failure,
+                      title: "Login Failed",
+                      message: "Please check your credentials",
+                    });
+                  }
+                } catch (error) {
+                  console.error("Login error:", error);
+                  await showToast({
+                    style: Toast.Style.Failure,
+                    title: "Login Error",
+                    message: error instanceof Error ? error.message : "Unknown error",
+                  });
+                }
+              }}
+            />
+          </ActionPanel>
+        }
+      >
+        <Form.TextField
+          id="email"
+          title="Email"
+          placeholder="Enter your LibreView email"
+          autoFocus
         />
-      </List>
+        <Form.PasswordField
+          id="password"
+          title="Password"
+          placeholder="Enter your LibreView password"
+        />
+        <Form.Dropdown id="unit" title="Glucose Unit" defaultValue="mmol">
+          <Form.Dropdown.Item value="mmol" title="mmol/L" />
+          <Form.Dropdown.Item value="mgdl" title="mg/dL" />
+        </Form.Dropdown>
+      </Form>
     );
   }
 
