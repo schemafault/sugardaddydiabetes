@@ -1,20 +1,31 @@
 import React from "react";
-import { render } from "@testing-library/react";
+import { render, act } from "@testing-library/react";
 import * as auth from "../auth";
 import Command from "../menubar";
+import { showToast } from "@raycast/api";
 
-jest.mock("../auth");
+jest.mock("../auth", () => ({
+  isLoggedOut: jest.fn().mockResolvedValue(false),
+}));
+
 jest.mock("../libreview", () => ({
   fetchGlucoseData: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock("../store", () => ({
+  glucoseStore: {
+    getReadings: jest.fn(),
+  },
 }));
 
 // Mock with exact structure needed by menubar.tsx
 jest.mock("@raycast/api", () => ({
   MenuBarExtra: (props: any) => <div>{props.title || "Menu Bar"}</div>,
-  getPreferenceValues: () => ({
+  getPreferenceValues: jest.fn().mockReturnValue({
     username: "test@example.com",
     password: "password123",
     unit: "mmol",
+    alertsEnabled: false,
   }),
   Icon: {
     Circle: "circle",
@@ -51,5 +62,37 @@ describe("MenuBar Command", () => {
 
   it("should render without crashing", () => {
     render(<Command />);
+  });
+
+  it("should handle glucose alerts when enabled", async () => {
+    const mockReading = {
+      Value: 3.5,
+      ValueInMgPerDl: 63,
+      Timestamp: new Date().toISOString(),
+      unit: "mmol",
+    };
+
+    const store = jest.requireMock("../store");
+    store.glucoseStore.getReadings.mockResolvedValue([mockReading]);
+
+    jest.requireMock("@raycast/api").getPreferenceValues.mockReturnValue({
+      username: "test@example.com",
+      password: "password123",
+      unit: "mmol",
+      alertsEnabled: true,
+      lowThreshold: "3.9",
+      highThreshold: "10.0",
+    });
+
+    await act(async () => {
+      render(<Command />);
+    });
+
+    expect(showToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        style: "failure",
+        title: expect.stringContaining("Low Glucose Alert"),
+      })
+    );
   });
 });
