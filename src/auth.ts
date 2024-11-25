@@ -47,6 +47,11 @@ function isAuthResponse(data: any): data is AuthResponse {
   );
 }
 
+interface ErrorResponse {
+  message?: string;
+  status?: number;
+}
+
 export async function authenticate(): Promise<string> {
   console.log('Authenticating...');
   const credentials = getLibreViewCredentials();
@@ -74,6 +79,7 @@ export async function authenticate(): Promise<string> {
     console.log('Auth response:', JSON.stringify(data, null, 2));
 
     if (!response.ok) {
+      const data = (await response.json()) as ErrorResponse;
       throw new Error(data.message || `Authentication failed: ${response.status}`);
     }
 
