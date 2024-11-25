@@ -55,7 +55,7 @@
       "type": "dropdown",
       "required": true,
       "title": "Glucose Unit",
-      "description": "Choose between mmol/L and mg/dL",
+      "description": "Choose between mmol/L and mg/dL. Note: Please update your thresholds after changing units",
       "data": [
         {
           "title": "mmol/L",
@@ -82,16 +82,16 @@
       "type": "textfield",
       "required": false,
       "title": "Low Glucose Threshold",
-      "description": "Alert when glucose falls below this value (in your selected unit)",
-      "default": "3.9"
+      "description": "Alert when glucose falls below this value. Enter value in your selected unit (mmol/L or mg/dL)",
+      "placeholder": "e.g. 3.9 for mmol/L or 70 for mg/dL"
     },
     {
       "name": "highThreshold",
       "type": "textfield",
       "required": false,
       "title": "High Glucose Threshold",
-      "description": "Alert when glucose rises above this value (in your selected unit)",
-      "default": "10.0"
+      "description": "Alert when glucose rises above this value. Enter value in your selected unit (mmol/L or mg/dL)",
+      "placeholder": "e.g. 10.0 for mmol/L or 180 for mg/dL"
     }
   ],
   "dependencies": {
