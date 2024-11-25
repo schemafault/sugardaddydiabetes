@@ -97,6 +97,16 @@ export async function authenticate(): Promise<string> {
     return token;
   } catch (error) {
     console.error('Authentication error:', error);
+    
+    if (error instanceof Error) {
+      if (error.message.includes('401')) {
+        throw new Error('Invalid username or password. Please check your LibreView credentials.');
+      } else if (error.message.includes('429')) {
+        throw new Error('Too many login attempts. Please try again in a few minutes.');
+      } else if (error.message.includes('503')) {
+        throw new Error('LibreView service is temporarily unavailable. Please try again later.');
+      }
+    }
     throw error;
   }
 }

@@ -2,12 +2,20 @@
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "sugardaddydiabetes",
   "title": "SugarDaddyDiabetes",
-  "description": "It helps monitory glucose data from Freestyle Libre 2 & 3 devices",
+  "description": "Monitor glucose data from Freestyle Libre 2 & 3 devices through LibreView integration",
   "icon": "extension-icon.png",
   "author": "authormatic",
   "owner": "magi",
   "categories": [
-    "Data"
+    "Data",
+    "Healthcare"
+  ],
+  "keywords": [
+    "diabetes",
+    "glucose",
+    "health",
+    "libre",
+    "libreview"
   ],
   "license": "MIT",
   "commands": [

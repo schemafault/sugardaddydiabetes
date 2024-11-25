@@ -1,5 +1,11 @@
 type GlucoseUnit = 'mmol' | 'mgdl';
 
+/**
+ * Returns a color code based on the glucose value and unit
+ * @param value - The glucose reading value
+ * @param unit - The unit of measurement ('mmol' or 'mgdl')
+ * @returns A hex color code representing the glucose range
+ */
 export function getValueColor(value: number, unit: GlucoseUnit): string {
   // Convert mgdl to mmol for consistent comparison
   const mmolValue = unit === 'mgdl' ? value / 18 : value;
