@@ -13,7 +13,7 @@ const API_HEADERS = {
 const LOGGED_OUT_KEY = "logged_out";
 const AUTH_TOKEN_KEY = "auth_token";
 
-interface AuthResponse {
+interface AuthResponse extends Record<string, unknown> {
   status: number;
   data: {
     user: {
@@ -21,7 +21,6 @@ interface AuthResponse {
       firstName: string;
       lastName: string;
       email: string;
-      // ... other user fields
     };
     authTicket: {
       token: string;
@@ -31,19 +30,20 @@ interface AuthResponse {
   };
 }
 
-function isAuthResponse(data: Record<string, unknown>): data is AuthResponse {
+function isAuthResponse(data: unknown): data is AuthResponse {
+  if (typeof data !== 'object' || data === null) return false;
+  
+  const response = data as Record<string, unknown>;
   return (
-    typeof data === "object" &&
-    data !== null &&
-    "status" in data &&
-    "data" in data &&
-    typeof data.data === "object" &&
-    data.data !== null &&
-    "authTicket" in data.data &&
-    typeof data.data.authTicket === "object" &&
-    data.data.authTicket !== null &&
-    "token" in data.data.authTicket &&
-    typeof data.data.authTicket.token === "string"
+    'status' in response &&
+    'data' in response &&
+    typeof response.data === 'object' &&
+    response.data !== null &&
+    'authTicket' in (response.data as Record<string, unknown>) &&
+    typeof (response.data as Record<string, unknown>).authTicket === 'object' &&
+    (response.data as Record<string, unknown>).authTicket !== null &&
+    'token' in ((response.data as Record<string, unknown>).authTicket as Record<string, unknown>) &&
+    typeof ((response.data as Record<string, unknown>).authTicket as Record<string, unknown>).token === 'string'
   );
 }
 
