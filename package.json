@@ -67,6 +67,31 @@
         }
       ],
       "default": "mmol"
+    },
+    {
+      "name": "alertsEnabled",
+      "type": "checkbox",
+      "required": false,
+      "title": "Enable Glucose Alerts",
+      "description": "Show notifications when glucose levels are outside your target range",
+      "default": true,
+      "label": "Enable Alerts"
+    },
+    {
+      "name": "lowThreshold",
+      "type": "textfield",
+      "required": false,
+      "title": "Low Glucose Threshold",
+      "description": "Alert when glucose falls below this value (in your selected unit)",
+      "default": "3.9"
+    },
+    {
+      "name": "highThreshold",
+      "type": "textfield",
+      "required": false,
+      "title": "High Glucose Threshold",
+      "description": "Alert when glucose rises above this value (in your selected unit)",
+      "default": "10.0"
     }
   ],
   "dependencies": {

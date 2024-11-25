@@ -9,6 +9,7 @@ import {
   popToRoot,
   open,
   preferences,
+  getPreferenceValues,
 } from "@raycast/api";
 import { useEffect, useState, useCallback } from "react";
 import { getLibreViewCredentials } from "./preferences";
@@ -26,6 +27,12 @@ interface GlucoseStats {
   low: number;
   normal: number;
   high: number;
+}
+
+interface Preferences {
+  alertsEnabled: boolean;
+  lowThreshold: string;
+  highThreshold: string;
 }
 
 const calculateStats = (data: GlucoseReading[], unit: string): GlucoseStats => {
@@ -63,6 +70,31 @@ const getValueColor = (value: number | null, unit: string): { source: Icon; tint
   return { source: Icon.Circle, tintColor: Color.Green };
 };
 
+const checkGlucoseAlert = (
+  reading: number,
+  unit: string,
+  prefs: Preferences
+): { shouldAlert: boolean; message: string; type: "low" | "high" | null } => {
+  const lowThreshold = parseFloat(prefs.lowThreshold);
+  const highThreshold = parseFloat(prefs.highThreshold);
+  
+  if (reading <= lowThreshold) {
+    return {
+      shouldAlert: true,
+      message: `Low glucose alert: ${reading.toFixed(1)} ${unit === "mmol" ? "mmol/L" : "mg/dL"}`,
+      type: "low"
+    };
+  }
+  if (reading >= highThreshold) {
+    return {
+      shouldAlert: true,
+      message: `High glucose alert: ${reading.toFixed(1)} ${unit === "mmol" ? "mmol/L" : "mg/dL"}`,
+      type: "high"
+    };
+  }
+  return { shouldAlert: false, message: "", type: null };
+};
+
 export default function Command() {
   const [readings, setReadings] = useState<GlucoseReading[]>([]);
   const [latestReading, setLatestReading] = useState<string | null>(null);
@@ -73,6 +105,7 @@ export default function Command() {
   const { unit } = getLibreViewCredentials();
   const [isVisible, setIsVisible] = useState(true);
   const [isLoggedOut, setIsLoggedOut] = useState(false);
+  const [lastAlertTime, setLastAlertTime] = useState<Record<string, number>>({});
 
   const getTrendIcon = useCallback(() => {
     if (readings.length < 2) return "→";
@@ -97,33 +130,65 @@ export default function Command() {
         setIsLoggedOut(false);
 
         setIsLoading(true);
-        console.log("Menubar: Starting data fetch");
+        console.log("Menubar: Starting data fetch", { forceRefresh });
         const data = await glucoseStore.getReadings(forceRefresh);
 
         if (data && data.length > 0) {
-          console.log(
-            "Menubar: Latest readings:",
-            data.slice(0, 3).map((r) => ({
-              value: r.Value,
-              mgdl: r.ValueInMgPerDl,
-              time: new Date(r.Timestamp).toLocaleTimeString(),
+          const latestReading = data[0];
+          const previousReading = data[1];
+          
+          const prefs = getPreferenceValues<Preferences>();
+          if (prefs.alertsEnabled) {
+            const currentValue = unit === "mmol" ? latestReading.Value : latestReading.ValueInMgPerDl;
+            console.log("Alert Check:", {
+              currentValue,
               unit,
-            })),
-          );
+              lowThreshold: prefs.lowThreshold,
+              highThreshold: prefs.highThreshold,
+              alertsEnabled: prefs.alertsEnabled,
+              forceRefresh
+            });
+            
+            const { shouldAlert, message, type } = checkGlucoseAlert(currentValue, unit, prefs);
+            console.log("Alert Result:", { shouldAlert, message, type });
+            
+            const now = Date.now();
+            const lastAlert = lastAlertTime[type || ""] || 0;
+            const timeSinceLastAlert = now - lastAlert;
+            
+            if (shouldAlert && (
+              forceRefresh || 
+              ((!previousReading || latestReading.Timestamp !== previousReading.Timestamp) && 
+               timeSinceLastAlert > 60000)
+            )) {
+              console.log("Showing alert toast", { forceRefresh, timeSinceLastAlert });
+              
+              if (type) {
+                setLastAlertTime(prev => ({
+                  ...prev,
+                  [type]: now
+                }));
+              }
+              
+              await showToast({
+                style: Toast.Style.Failure,
+                title: type === "low" ? "Low Glucose Alert" : "High Glucose Alert",
+                message: message,
+                primaryAction: {
+                  title: "Open Dashboard",
+                  onAction: () => {
+                    open("raycast://extensions/authormatic/sugardaddydiabetes/dashboard");
+                    popToRoot();
+                  },
+                },
+              });
+            }
+          }
 
           setReadings(data);
-          const latest = data[0];
-          const value = unit === "mmol" ? latest.Value : latest.ValueInMgPerDl;
+          const value = unit === "mmol" ? latestReading.Value : latestReading.ValueInMgPerDl;
           setLatestReading(value.toFixed(1));
-
-          console.log("Menubar: Setting latest reading:", {
-            raw: value,
-            formatted: value.toFixed(1),
-            timestamp: new Date(latest.Timestamp).toLocaleTimeString(),
-            unit,
-          });
-
-          setLastUpdateTime(new Date(latest.Timestamp));
+          setLastUpdateTime(new Date(latestReading.Timestamp));
           setStats(calculateStats(data, unit));
           setError(null);
         } else {
@@ -147,7 +212,7 @@ export default function Command() {
         setIsLoading(false);
       }
     },
-    [unit],
+    [unit, lastAlertTime],
   );
 
   useEffect(() => {
