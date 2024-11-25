@@ -14,7 +14,7 @@ For the most up-to-date readings, please refer to your Libre sensor directly or 
 
 ## Features
 
-- 📊 Real-time glucose monitoring through LibreView
+- 📊 Near real-time glucose monitoring through LibreView (5-15 minute delay)
 - 📈 24-hour glucose average with visual gauge
 - 🎯 Color-coded readings (In Range 🟢, Low 🟡, High 🔴)
 - 🔔 Menu bar quick view for latest readings
@@ -118,6 +118,11 @@ If you encounter issues:
 5. Ensure you have a stable internet connection
 
 For additional support, please open an issue on GitHub.
+
+## Support & Contact
+
+For questions, feedback, and compliments, please contact:
+- Email: magiworksdev@gmail.com
 
 ## License
 
