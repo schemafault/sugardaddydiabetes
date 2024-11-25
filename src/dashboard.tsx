@@ -39,15 +39,29 @@ export default function Command() {
 
   useEffect(() => {
     fetchData();
-    return () => {
-      // Cleanup when dashboard is unmounted
-      LocalStorage.removeItem("dashboard-active");
+    
+    // Safely manage LocalStorage
+    const setDashboardActive = async () => {
+      try {
+        await LocalStorage.setItem("dashboard-active", "true");
+      } catch (error) {
+        console.error("Error setting dashboard active state:", error);
+      }
     };
-  }, []);
+    
+    setDashboardActive();
 
-  useEffect(() => {
-    // Set active state when dashboard opens
-    LocalStorage.setItem("dashboard-active", "true");
+    return () => {
+      // Safely cleanup
+      const cleanupDashboard = async () => {
+        try {
+          await LocalStorage.removeItem("dashboard-active");
+        } catch (error) {
+          console.error("Error cleaning up dashboard state:", error);
+        }
+      };
+      cleanupDashboard();
+    };
   }, []);
 
   const getValueColor = (value: number): string => {
