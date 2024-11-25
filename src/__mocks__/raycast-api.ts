@@ -10,8 +10,8 @@ export const Toast = {
   Style: {
     Failure: "failure",
     Success: "success",
-    Animated: "animated"
-  }
+    Animated: "animated",
+  },
 };
 
 export const Icon = {
@@ -22,7 +22,7 @@ export const Icon = {
   Circle: "circle",
   ArrowClockwise: "arrow.clockwise",
   List: "list",
-  Terminal: "terminal"
+  Terminal: "terminal",
 };
 
 export const Color = {
@@ -30,7 +30,7 @@ export const Color = {
   SecondaryText: "#999999",
   Red: "#FF0000",
   Green: "#00FF00",
-  Yellow: "#FFFF00"
+  Yellow: "#FFFF00",
 };
 
 export const MenuBarExtra = ({ children, icon, title }: any) => ({ children, icon, title });
@@ -48,9 +48,9 @@ export const Action = ({ title, icon, onAction }: any) => ({ title, icon, onActi
 export const getPreferenceValues = jest.fn(() => ({
   username: "test@example.com",
   password: "password123",
-  unit: "mmol"
+  unit: "mmol",
 }));
 
 export const openExtensionPreferences = jest.fn();
 export const popToRoot = jest.fn();
-export const open = jest.fn(); 
+export const open = jest.fn();

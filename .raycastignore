@@ -1,0 +1,6 @@
+**/__tests__/**
+**/__mocks__/**
+*.test.ts
+*.test.tsx
+jest.config.js
+coverage/** 

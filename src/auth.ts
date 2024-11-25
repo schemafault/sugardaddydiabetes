@@ -1,17 +1,17 @@
 import { clearLocalStorage, showToast, Toast, LocalStorage } from "@raycast/api";
-import fetch from 'node-fetch';
+import fetch from "node-fetch";
 import { getLibreViewCredentials } from "./preferences";
 
 const API_BASE = "https://api.libreview.io";
 const API_HEADERS = {
-  'Content-Type': 'application/json',
-  'Product': 'llu.android',
-  'Version': '4.7.0',
-  'Accept-Encoding': 'gzip'
+  "Content-Type": "application/json",
+  Product: "llu.android",
+  Version: "4.7.0",
+  "Accept-Encoding": "gzip",
 };
 
-const LOGGED_OUT_KEY = 'logged_out';
-const AUTH_TOKEN_KEY = 'auth_token';
+const LOGGED_OUT_KEY = "logged_out";
+const AUTH_TOKEN_KEY = "auth_token";
 
 interface AuthResponse {
   status: number;
@@ -33,17 +33,17 @@ interface AuthResponse {
 
 function isAuthResponse(data: any): data is AuthResponse {
   return (
-    typeof data === 'object' &&
+    typeof data === "object" &&
     data !== null &&
-    'status' in data &&
-    'data' in data &&
-    typeof data.data === 'object' &&
+    "status" in data &&
+    "data" in data &&
+    typeof data.data === "object" &&
     data.data !== null &&
-    'authTicket' in data.data &&
-    typeof data.data.authTicket === 'object' &&
+    "authTicket" in data.data &&
+    typeof data.data.authTicket === "object" &&
     data.data.authTicket !== null &&
-    'token' in data.data.authTicket &&
-    typeof data.data.authTicket.token === 'string'
+    "token" in data.data.authTicket &&
+    typeof data.data.authTicket.token === "string"
   );
 }
 
@@ -53,30 +53,30 @@ interface ErrorResponse {
 }
 
 export async function authenticate(): Promise<string> {
-  console.log('Authenticating...');
+  console.log("Authenticating...");
   const credentials = getLibreViewCredentials();
-  
+
   if (!credentials?.username || !credentials?.password) {
-    console.error('No credentials found');
-    throw new Error('Missing LibreView credentials');
+    console.error("No credentials found");
+    throw new Error("Missing LibreView credentials");
   }
-  
+
   try {
-    console.log('Sending auth request...');
+    console.log("Sending auth request...");
     const response = await fetch(`${API_BASE}/llu/auth/login`, {
-      method: 'POST',
+      method: "POST",
       headers: {
         ...API_HEADERS,
-        'Accept': 'application/json'
+        Accept: "application/json",
       },
       body: JSON.stringify({
         email: credentials.username,
-        password: credentials.password
-      })
+        password: credentials.password,
+      }),
     });
 
     const data = await response.json();
-    console.log('Auth response:', JSON.stringify(data, null, 2));
+    console.log("Auth response:", JSON.stringify(data, null, 2));
 
     if (!response.ok) {
       const data = (await response.json()) as ErrorResponse;
@@ -84,27 +84,27 @@ export async function authenticate(): Promise<string> {
     }
 
     if (!isAuthResponse(data)) {
-      console.error('Invalid response format:', data);
-      throw new Error('Invalid authentication response format');
+      console.error("Invalid response format:", data);
+      throw new Error("Invalid authentication response format");
     }
 
     const token = data.data.authTicket.token;
     if (!token) {
-      throw new Error('No token in authentication response');
+      throw new Error("No token in authentication response");
     }
 
-    console.log('Authentication successful');
+    console.log("Authentication successful");
     return token;
   } catch (error) {
-    console.error('Authentication error:', error);
-    
+    console.error("Authentication error:", error);
+
     if (error instanceof Error) {
-      if (error.message.includes('401')) {
-        throw new Error('Invalid username or password. Please check your LibreView credentials.');
-      } else if (error.message.includes('429')) {
-        throw new Error('Too many login attempts. Please try again in a few minutes.');
-      } else if (error.message.includes('503')) {
-        throw new Error('LibreView service is temporarily unavailable. Please try again later.');
+      if (error.message.includes("401")) {
+        throw new Error("Invalid username or password. Please check your LibreView credentials.");
+      } else if (error.message.includes("429")) {
+        throw new Error("Too many login attempts. Please try again in a few minutes.");
+      } else if (error.message.includes("503")) {
+        throw new Error("LibreView service is temporarily unavailable. Please try again later.");
       }
     }
     throw error;
@@ -115,18 +115,18 @@ export async function logout() {
   try {
     await clearLocalStorage();
     await LocalStorage.removeItem(AUTH_TOKEN_KEY);
-    await LocalStorage.setItem(LOGGED_OUT_KEY, 'true');
+    await LocalStorage.setItem(LOGGED_OUT_KEY, "true");
     await showToast({
       style: Toast.Style.Success,
       title: "Logged out successfully",
-      message: "Please quit and restart the menu bar app"
+      message: "Please quit and restart the menu bar app",
     });
   } catch (error) {
-    console.error('Error during logout:', error);
+    console.error("Error during logout:", error);
     await showToast({
       style: Toast.Style.Failure,
       title: "Failed to log out",
-      message: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : "Unknown error",
     });
   }
 }
@@ -136,7 +136,7 @@ type IsLoggedOutFunction = () => Promise<boolean>;
 export const isLoggedOut: IsLoggedOutFunction = async () => {
   try {
     const value = await LocalStorage.getItem(LOGGED_OUT_KEY);
-    return value === 'true';
+    return value === "true";
   } catch {
     return false;
   }
@@ -155,7 +155,7 @@ export async function attemptLogin(): Promise<boolean> {
 
     // Clear logged out state first
     await clearLoggedOutState();
-    
+
     // Attempt authentication
     const token = await authenticate();
     if (token) {
@@ -163,18 +163,18 @@ export async function attemptLogin(): Promise<boolean> {
       await showToast({
         style: Toast.Style.Success,
         title: "Successfully logged in",
-        message: "Your LibreView credentials are valid"
+        message: "Your LibreView credentials are valid",
       });
       return true;
     }
     return false;
   } catch (error) {
-    console.error('Login attempt failed:', error);
-    await LocalStorage.setItem(LOGGED_OUT_KEY, 'true');
+    console.error("Login attempt failed:", error);
+    await LocalStorage.setItem(LOGGED_OUT_KEY, "true");
     await showToast({
       style: Toast.Style.Failure,
       title: "Login failed",
-      message: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : "Unknown error",
     });
     return false;
   }

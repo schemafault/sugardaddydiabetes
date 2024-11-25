@@ -6,12 +6,12 @@ jest.mock("../preferences", () => ({
   getLibreViewCredentials: () => ({
     username: "test@example.com",
     password: "password123",
-    unit: "mmol"
-  })
+    unit: "mmol",
+  }),
 }));
 
 jest.mock("../libreview", () => ({
-  fetchGlucoseData: jest.fn().mockResolvedValue([])
+  fetchGlucoseData: jest.fn().mockResolvedValue([]),
 }));
 
 describe("GlucoseStore", () => {
@@ -24,4 +24,4 @@ describe("GlucoseStore", () => {
     expect(Array.isArray(readings)).toBe(true);
     expect(readings.length).toBe(0);
   });
-}); 
+});

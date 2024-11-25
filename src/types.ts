@@ -3,11 +3,11 @@ export interface GlucoseReading {
   ValueInMgPerDl: number;
   Timestamp: string;
   TrendArrow?: string;
-  unit: 'mmol' | 'mgdl';
+  unit: "mmol" | "mgdl";
 }
 
 export interface LibreViewCredentials {
   username: string;
   password: string;
-  unit: 'mmol' | 'mgdl';
+  unit: "mmol" | "mgdl";
 }

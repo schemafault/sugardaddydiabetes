@@ -1,14 +1,14 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "sugardaddydiabetes",
-  "title": "SugarDaddyDiabetes",
+  "title": "Sugar Daddy Diabetes",
   "description": "Monitor glucose data from Freestyle Libre 2 & 3 devices through LibreView integration",
   "icon": "extension-icon.png",
   "author": "authormatic",
   "owner": "magi",
   "categories": [
     "Data",
-    "Healthcare"
+    "Other"
   ],
   "keywords": [
     "diabetes",
@@ -93,7 +93,7 @@
     "typescript": "^5.2.2"
   },
   "scripts": {
-    "build": "ray build -e dist",
+    "build": "ray build -e dist --exclude '**/*.test.ts' --exclude '**/*.test.tsx' --exclude '**/__tests__/**' --exclude '**/__mocks__/**'",
     "dev": "ray develop",
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
@@ -101,5 +101,13 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
-  }
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.ts",
+    "!dist/**/__tests__/**",
+    "!dist/**/__mocks__/**"
+  ]
 }

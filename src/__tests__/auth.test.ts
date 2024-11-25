@@ -19,4 +19,4 @@ describe("Auth", () => {
     const result = await isLoggedOut();
     expect(result).toBe(false);
   });
-}); 
+});

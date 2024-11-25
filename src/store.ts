@@ -51,9 +51,7 @@ class GlucoseStore {
     const now = Date.now();
 
     // Return cache if valid and not forcing refresh
-    if (!forceRefresh && 
-        this.cache && 
-        now - this.cache.timestamp < CACHE_DURATION) {
+    if (!forceRefresh && this.cache && now - this.cache.timestamp < CACHE_DURATION) {
       return this.cache.readings;
     }
 

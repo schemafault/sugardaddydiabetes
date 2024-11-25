@@ -4,13 +4,13 @@ import Command from "../dashboard";
 
 // Mock libreview to return empty data
 jest.mock("../libreview", () => ({
-  fetchGlucoseData: jest.fn().mockResolvedValue([])
+  fetchGlucoseData: jest.fn().mockResolvedValue([]),
 }));
 
 // Mock auth to return logged in state
 jest.mock("../auth", () => ({
   isLoggedOut: jest.fn().mockResolvedValue(false),
-  attemptLogin: jest.fn().mockResolvedValue(true)
+  attemptLogin: jest.fn().mockResolvedValue(true),
 }));
 
 // Complete mock of all Raycast components used in dashboard
@@ -24,27 +24,27 @@ jest.mock("@raycast/api", () => ({
   Action: {
     CopyToClipboard: function CopyToClipboard(props: any) {
       return <div>{props.title}</div>;
-    }
+    },
   },
-  Icon: { 
+  Icon: {
     Person: "person",
     Circle: "circle",
     Clock: "clock",
-    Gear: "gear"
+    Gear: "gear",
   },
   getPreferenceValues: () => ({
     username: "test@example.com",
     password: "password123",
-    unit: "mmol"
+    unit: "mmol",
   }),
   openExtensionPreferences: jest.fn(),
   showToast: jest.fn(),
   Toast: {
     Style: {
       Failure: "failure",
-      Success: "success"
-    }
-  }
+      Success: "success",
+    },
+  },
 }));
 
 // Add List components that dashboard uses
@@ -53,7 +53,12 @@ api.List.Item = function Item(props: any) {
   return <div>{props.title}</div>;
 };
 api.List.Section = function Section(props: any) {
-  return <div>{props.title}{props.children}</div>;
+  return (
+    <div>
+      {props.title}
+      {props.children}
+    </div>
+  );
 };
 api.List.EmptyView = function EmptyView(props: any) {
   return <div>{props.title}</div>;
@@ -65,4 +70,4 @@ describe("Dashboard", () => {
       render(<Command />);
     });
   });
-}); 
+});
