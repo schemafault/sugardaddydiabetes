@@ -1,0 +1,27 @@
+name: DiabetesMonitor
+options:
+  bundleIdPrefix: com.magiworks
+  deploymentTarget:
+    macOS: 13.0
+targets:
+  DiabetesMonitor:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.magiworks.diabetesmonitor
+        DEVELOPMENT_TEAM: "" # You'll need to add your team ID here
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+    info:
+      path: Sources/Info.plist
+      properties:
+        LSApplicationCategoryType: public.app-category.healthcare-fitness
+        CFBundleShortVersionString: 1.0.0
+        CFBundleVersion: 1
+        LSMinimumSystemVersion: 13.0
+        NSHighResolutionCapable: true
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true 

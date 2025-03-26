@@ -31,6 +31,12 @@
       "title": "Open Dashboard",
       "description": "Shows detailed glucose statistics and charts",
       "mode": "view"
+    },
+    {
+      "name": "glucose-chart",
+      "title": "Glucose Charts",
+      "description": "Interactive glucose charts with multiple time ranges",
+      "mode": "view"
     }
   ],
   "preferences": [
@@ -97,6 +103,7 @@
   "dependencies": {
     "@raycast/api": "^1.67.1",
     "@raycast/utils": "^1.4.8",
+    "d3": "^7.8.5",
     "date-fns": "^2.30.0",
     "node-fetch": "^3.3.0"
   },

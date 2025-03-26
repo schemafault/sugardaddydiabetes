@@ -1,0 +1,53 @@
+{
+  "": {
+    "swift-dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/master.swiftdeps"
+  },
+  "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/Sources/App/DiabetesMonitorApp.swift": {
+    "dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/DiabetesMonitorApp.d",
+    "object": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/DiabetesMonitorApp.swift.o",
+    "swiftmodule": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/DiabetesMonitorApp~partial.swiftmodule",
+    "swift-dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/DiabetesMonitorApp.swiftdeps"
+  },
+  "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/Sources/Models/GlucoseReading.swift": {
+    "dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/GlucoseReading.d",
+    "object": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/GlucoseReading.swift.o",
+    "swiftmodule": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/GlucoseReading~partial.swiftmodule",
+    "swift-dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/GlucoseReading.swiftdeps"
+  },
+  "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/Sources/Services/GlucoseMonitor.swift": {
+    "dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/GlucoseMonitor.d",
+    "object": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/GlucoseMonitor.swift.o",
+    "swiftmodule": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/GlucoseMonitor~partial.swiftmodule",
+    "swift-dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/GlucoseMonitor.swiftdeps"
+  },
+  "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/Sources/Services/LibreViewService.swift": {
+    "dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/LibreViewService.d",
+    "object": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/LibreViewService.swift.o",
+    "swiftmodule": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/LibreViewService~partial.swiftmodule",
+    "swift-dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/LibreViewService.swiftdeps"
+  },
+  "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/Sources/UI/Views/ContentView.swift": {
+    "dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/ContentView.d",
+    "object": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/ContentView.swift.o",
+    "swiftmodule": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/ContentView~partial.swiftmodule",
+    "swift-dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/ContentView.swiftdeps"
+  },
+  "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/Sources/UI/Views/HistoryView.swift": {
+    "dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/HistoryView.d",
+    "object": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/HistoryView.swift.o",
+    "swiftmodule": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/HistoryView~partial.swiftmodule",
+    "swift-dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/HistoryView.swiftdeps"
+  },
+  "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/Sources/UI/Views/MenuBarView.swift": {
+    "dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/MenuBarView.d",
+    "object": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/MenuBarView.swift.o",
+    "swiftmodule": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/MenuBarView~partial.swiftmodule",
+    "swift-dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/MenuBarView.swiftdeps"
+  },
+  "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/Sources/UI/Views/SettingsView.swift": {
+    "dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/SettingsView.d",
+    "object": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/SettingsView.swift.o",
+    "swiftmodule": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/SettingsView~partial.swiftmodule",
+    "swift-dependencies": "/Users/nathananderson/Documents/GitHub/macsugardaddydiabetes/.build/arm64-apple-macosx/debug/DiabetesMonitor.build/SettingsView.swiftdeps"
+  }
+}
