@@ -10,6 +10,9 @@ raycast-env.d.ts
 .swiftpm
 compiled_raycast_swift
 
+# Build files
+.build/
+
 # misc
 .DS_Store
 .env
