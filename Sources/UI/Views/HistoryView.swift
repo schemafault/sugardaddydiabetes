@@ -3,48 +3,20 @@ import Charts
 
 struct HistoryView: View {
     @EnvironmentObject private var appState: AppState
-    @State private var selectedTimeRange: TimeRange = .day
-    
-    enum TimeRange: String, CaseIterable {
-        case day = "24 Hours"
-        case week = "7 Days"
-        case month = "30 Days"
-        
-        var days: Int {
-            switch self {
-            case .day: return 1
-            case .week: return 7
-            case .month: return 30
-            }
-        }
-    }
-    
-    var filteredReadings: [GlucoseReading] {
-        let cutoffDate = Calendar.current.date(byAdding: .day, value: -selectedTimeRange.days, to: Date()) ?? Date()
-        return appState.glucoseHistory.filter { $0.timestamp >= cutoffDate }
-    }
     
     var body: some View {
         VStack(spacing: 16) {
-            Picker("Time Range", selection: $selectedTimeRange) {
-                ForEach(TimeRange.allCases, id: \.self) { range in
-                    Text(range.rawValue).tag(range)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            
-            if !filteredReadings.isEmpty {
+            if !appState.glucoseHistory.isEmpty {
                 ScrollView {
                     VStack(spacing: 16) {
-                        GlucoseChartView(readings: filteredReadings)
+                        GlucoseChartView(readings: appState.glucoseHistory)
                             .frame(minHeight: 300)
                             .padding()
                         
-                        StatisticsView(readings: filteredReadings)
+                        StatisticsView(readings: appState.glucoseHistory)
                             .padding(.horizontal)
                         
-                        ReadingsListView(readings: filteredReadings)
+                        ReadingsListView(readings: appState.glucoseHistory)
                             .frame(minHeight: 200)
                     }
                     .frame(maxWidth: .infinity)
@@ -56,9 +28,11 @@ struct HistoryView: View {
                         .foregroundColor(.secondary)
                     Text("No Data")
                         .font(.headline)
-                    Text("No glucose readings available for the selected time range")
+                    
+                    Text("No glucose readings available")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
@@ -71,8 +45,13 @@ struct HistoryView: View {
 struct ReadingsListView: View {
     let readings: [GlucoseReading]
     
+    var displayReadings: [GlucoseReading] {
+        // Simply return the readings in chronological order (most recent first)
+        return readings.sorted(by: { $0.timestamp > $1.timestamp })
+    }
+    
     var body: some View {
-        List(readings) { reading in
+        List(displayReadings) { reading in
             ReadingRow(reading: reading)
         }
         .frame(minHeight: 200)
@@ -83,48 +62,37 @@ struct ReadingsListView: View {
 struct ReadingRow: View {
     let reading: GlucoseReading
     
-    private var backgroundColor: Color {
-        let value = reading.value
-        if value < 70 || value > 180 {
-            return Color.red.opacity(0.2)
-        } else if value < 100 || value > 140 {
-            return Color.orange.opacity(0.2)
-        } else {
-            return Color.green.opacity(0.2)
-        }
-    }
-    
     var body: some View {
         HStack {
-            VStack(alignment: .leading) {
-                Text(formatDate(reading.timestamp))
-                    .font(.headline)
-                Text(reading.trend.description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            Text("\(reading.value, specifier: "%.1f") \(reading.unit)")
+                .foregroundColor(colorForReading(reading))
+                .frame(width: 80, alignment: .leading)
             
             Spacer()
             
-            VStack(alignment: .trailing) {
-                Text(String(format: "%.1f", reading.value))
-                    .font(.headline)
-                Text(UserDefaults.standard.string(forKey: "unit") == "mmol" ? "mmol/L" : "mg/dL")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
+            // Show full date and time for all readings
+            Text(formatDateTime(reading.timestamp))
+                .foregroundColor(.secondary)
+                .font(.caption)
         }
         .padding(.vertical, 4)
-        .padding(.horizontal, 8)
-        .background(backgroundColor)
-        .cornerRadius(8)
     }
     
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+    private func formatDateTime(_ date: Date) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEE, MMM d, h:mm a"
+        return dateFormatter.string(from: date)
+    }
+    
+    private func colorForReading(_ reading: GlucoseReading) -> Color {
+        let value = reading.value
+        if value < 70 || value > 180 {
+            return .red
+        } else if value < 100 || value > 140 {
+            return .orange
+        } else {
+            return .green
+        }
     }
 }
 

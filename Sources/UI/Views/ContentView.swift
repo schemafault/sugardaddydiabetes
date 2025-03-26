@@ -7,7 +7,7 @@ struct ContentView: View {
     
     var body: some View {
         NavigationSplitView {
-            List(selection: $selectedTab) {
+            List(selection: $appState.selectedTab) {
                 NavigationLink(value: 0) {
                     Label("Dashboard", systemImage: "chart.bar.fill")
                 }
@@ -22,7 +22,7 @@ struct ContentView: View {
             .frame(minWidth: 200)
         } detail: {
             Group {
-                switch selectedTab {
+                switch appState.selectedTab {
                 case 0:
                     DashboardView()
                 case 1:
@@ -52,6 +52,8 @@ struct ContentView: View {
                 Text(error.localizedDescription)
             }
         }
+        // Since the openWindowParameters isn't working, we'll just use the existing binding
+        // The appState.selectedTab will be set directly by the MenuBarView when opening the window
     }
 }
 
@@ -72,6 +74,7 @@ struct DashboardView: View {
                 }
                 
                 StatisticsView(readings: appState.glucoseHistory)
+                    .padding(.horizontal)
             }
             .padding()
             .frame(maxWidth: .infinity)
@@ -120,6 +123,33 @@ struct GlucoseChartView: View {
         case bar
     }
     
+    // Helper properties to simplify threshold calculations
+    private var currentUnit: String {
+        UserDefaults.standard.string(forKey: "unit") ?? "mg/dL"
+    }
+    
+    private var thresholds: (low: Double, high: Double) {
+        // Parse thresholds from UserDefaults
+        let lowThresholdString = UserDefaults.standard.string(forKey: "lowThreshold") ?? 
+                                (currentUnit == "mmol" ? "4.0" : "70")
+        let highThresholdString = UserDefaults.standard.string(forKey: "highThreshold") ?? 
+                                 (currentUnit == "mmol" ? "10.0" : "180")
+        
+        let lowThreshold = Double(lowThresholdString) ?? (currentUnit == "mmol" ? 4.0 : 70.0)
+        let highThreshold = Double(highThresholdString) ?? (currentUnit == "mmol" ? 10.0 : 180.0)
+        
+        return (low: lowThreshold, high: highThreshold)
+    }
+    
+    private var displayThresholds: (low: Double, high: Double) {
+        // Convert to mmol/L for display
+        let isMMOL = currentUnit == "mmol"
+        let displayLow = isMMOL ? thresholds.low : thresholds.low / 18.0182
+        let displayHigh = isMMOL ? thresholds.high : thresholds.high / 18.0182
+        
+        return (low: displayLow, high: displayHigh)
+    }
+    
     var body: some View {
         VStack {
             HStack {
@@ -166,48 +196,29 @@ struct GlucoseChartView: View {
                 }
             }
             .chartXScale(range: .plotDimension(padding: 40))
+            .chartYScale(domain: 3...27)
             .chartYAxis {
-                AxisMarks { value in
+                AxisMarks(values: [3, 6, 9, 12, 15, 18, 21, 24, 27]) { value in
                     AxisGridLine()
                     AxisTick()
                     AxisValueLabel {
                         if let reading = value.as(Double.self) {
-                            Text(String(format: "%.1f", reading))
+                            Text(String(format: "%.0f", reading))
                         }
                     }
                 }
             }
             .chartXAxis {
-                AxisMarks(values: .stride(by: .hour)) { value in
+                AxisMarks(values: .stride(by: .hour, count: 3)) { value in
+                    AxisGridLine()
+                    AxisTick()
                     if let date = value.as(Date.self) {
                         AxisValueLabel(formatDate(date))
                     }
                 }
             }
             .overlay {
-                GeometryReader { geometry in
-                    let lowThreshold = Double(UserDefaults.standard.string(forKey: "lowThreshold") ?? "70") ?? 70
-                    let highThreshold = Double(UserDefaults.standard.string(forKey: "highThreshold") ?? "180") ?? 180
-                    
-                    // Convert to display units if needed
-                    let displayLow = UserDefaults.standard.string(forKey: "unit") == "mmol" ? lowThreshold / 18.0182 : lowThreshold
-                    let displayHigh = UserDefaults.standard.string(forKey: "unit") == "mmol" ? highThreshold / 18.0182 : highThreshold
-                    
-                    let maxValue = readings.map { $0.displayValue }.max() ?? 1
-                    let yScale = geometry.size.height / maxValue
-                    
-                    Path { path in
-                        path.move(to: CGPoint(x: 0, y: geometry.size.height - (displayLow * yScale)))
-                        path.addLine(to: CGPoint(x: geometry.size.width, y: geometry.size.height - (displayLow * yScale)))
-                    }
-                    .stroke(Color.yellow.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [5]))
-                    
-                    Path { path in
-                        path.move(to: CGPoint(x: 0, y: geometry.size.height - (displayHigh * yScale)))
-                        path.addLine(to: CGPoint(x: geometry.size.width, y: geometry.size.height - (displayHigh * yScale)))
-                    }
-                    .stroke(Color.red.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [5]))
-                }
+                ChartOverlayView(displayLow: displayThresholds.low, displayHigh: displayThresholds.high)
             }
         }
     }
@@ -216,6 +227,52 @@ struct GlucoseChartView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: date)
+    }
+}
+
+// Break out overlay into its own structure to simplify the main view
+struct ChartOverlayView: View {
+    let displayLow: Double
+    let displayHigh: Double
+    
+    var body: some View {
+        GeometryReader { geometry in
+            // Print for debugging
+            let _ = print("Chart thresholds - low: \(displayLow), high: \(displayHigh) mmol/L")
+            
+            // Calculate scale (accounting for the 3-27 range = 24 units of range)
+            let yScale = geometry.size.height / 24
+            
+            // Target range rectangle
+            targetRangeRectangle(geometry: geometry, yScale: yScale)
+            
+            // Low threshold line
+            thresholdLine(geometry: geometry, threshold: displayLow, yScale: yScale, color: .yellow)
+            
+            // High threshold line
+            thresholdLine(geometry: geometry, threshold: displayHigh, yScale: yScale, color: .red)
+        }
+    }
+    
+    // Helper views to break down the complex calculations
+    private func targetRangeRectangle(geometry: GeometryProxy, yScale: CGFloat) -> some View {
+        let height = (displayHigh - displayLow) * yScale
+        let yPosition = geometry.size.height - ((displayHigh + displayLow) / 2 - 3) * yScale
+        
+        return Rectangle()
+            .fill(Color.green.opacity(0.1))
+            .frame(width: geometry.size.width, height: height)
+            .position(x: geometry.size.width / 2, y: yPosition)
+    }
+    
+    private func thresholdLine(geometry: GeometryProxy, threshold: Double, yScale: CGFloat, color: Color) -> some View {
+        let yPosition = geometry.size.height - ((threshold - 3) * yScale)
+        
+        return Path { path in
+            path.move(to: CGPoint(x: 0, y: yPosition))
+            path.addLine(to: CGPoint(x: geometry.size.width, y: yPosition))
+        }
+        .stroke(color.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [5]))
     }
 }
 

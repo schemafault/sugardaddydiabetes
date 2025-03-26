@@ -2,6 +2,8 @@ import SwiftUI
 import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    var appState: AppState?
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("App did finish launching")
         
@@ -18,6 +20,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Ensure windows can become key window
             if window.canBecomeKey {
                 window.makeKeyAndOrderFront(nil)
+            }
+        }
+        
+        // Register for URL handling
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+    
+    @objc func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
+        guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: urlString) else {
+            return
+        }
+        
+        print("Handling URL: \(url)")
+        
+        if url.host == "dashboard" {
+            // Show the main window
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                if let window = NSApp.windows.first(where: { $0.title.contains("Dashboard") }) {
+                    window.makeKeyAndOrderFront(nil)
+                } else {
+                    // Create the window if it doesn't exist
+                    for window in NSApp.windows where window.title.contains("Diabetes Monitor") {
+                        window.makeKeyAndOrderFront(nil)
+                        break
+                    }
+                }
             }
         }
     }
@@ -222,17 +257,19 @@ class LoginWindowController: NSWindowController, NSWindowDelegate {
 struct DiabetesMonitorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
-    @State private var selectedTab = 0  // Set initial tab to 0 (Dashboard)
     
     // Store window controller reference
     @State private var loginWindowController: LoginWindowController? = nil
     
     var body: some Scene {
-        WindowGroup {
-            ContentView(selectedTab: $selectedTab)
+        WindowGroup("Diabetes Monitor", id: "main") {
+            ContentView(selectedTab: $appState.selectedTab)
                 .environmentObject(appState)
                 .frame(minWidth: 800, minHeight: 600)
                 .onAppear {
+                    // Set appState in AppDelegate
+                    appDelegate.appState = appState
+                    
                     let hasCredentials = UserDefaults.standard.string(forKey: "username") != nil &&
                                          UserDefaults.standard.string(forKey: "password") != nil
                     
@@ -245,8 +282,14 @@ struct DiabetesMonitorApp: App {
                     }
                 }
         }
+        .defaultPosition(.center)
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
+        .handlesExternalEvents(matching: Set(arrayLiteral: "diabetesmonitor"))
+        .commands {
+            // Hide the default "New Window" menu item
+            CommandGroup(replacing: .newItem) {}
+        }
         
         MenuBarExtra("Diabetes Monitor", systemImage: "heart.fill") {
             MenuBarView()
@@ -309,48 +352,59 @@ struct DiabetesMonitorApp: App {
             NSApp.activate(ignoringOtherApps: true)
             
             for window in NSApplication.shared.windows {
-                // Skip status bar windows which can't become key
-                if NSStringFromClass(type(of: window)).contains("StatusBarWindow") {
-                    print("Skipping status bar window configuration")
+                // Skip status bar windows which can't become key or main
+                if NSStringFromClass(type(of: window)).contains("StatusBarWindow") ||
+                   NSStringFromClass(type(of: window)).contains("MenuBarExtra") {
+                    print("Skipping menu bar or status bar window configuration")
                     continue
                 }
                 
-                // Apply full standard window style mask with all controls and resizing
-                window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-                
-                // Enable proper text field handling
-                window.isMovableByWindowBackground = false
-                window.preventsApplicationTerminationWhenModal = false
-                
-                // Set behavior for proper focus
-                window.collectionBehavior = [.fullScreenPrimary]
-                
-                // Ensure proper field editor configuration
-                if let fieldEditor = window.fieldEditor(true, for: nil) {
-                    fieldEditor.isSelectable = true
-                    fieldEditor.isEditable = true
+                // Only apply style to regular windows
+                if window.styleMask.contains(.titled) {
+                    // Apply full standard window style mask with all controls and resizing
+                    window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+                    
+                    // Enable proper text field handling
+                    window.isMovableByWindowBackground = false
+                    window.preventsApplicationTerminationWhenModal = false
+                    
+                    // Set behavior for proper focus
+                    window.collectionBehavior = [.fullScreenPrimary]
+                    
+                    // Ensure proper field editor configuration
+                    if let fieldEditor = window.fieldEditor(true, for: nil) {
+                        fieldEditor.isSelectable = true
+                        fieldEditor.isEditable = true
+                    }
+                    
+                    // Set min size constraints
+                    window.minSize = NSSize(width: 800, height: 600)
+                    window.setContentSize(NSSize(width: 900, height: 700))
+                    
+                    // Set activation policy to ensure input
+                    NSApp.setActivationPolicy(.regular)
+                    
+                    // Don't replace existing window delegate which might handle other things
+                    if window.delegate == nil {
+                        let delegate = FocusDebuggingWindowDelegate()
+                        window.delegate = delegate
+                    }
+                    
+                    // Only try to make key/main if the window can be key/main
+                    if window.canBecomeKey {
+                        window.makeKey()
+                    }
+                    
+                    if window.canBecomeMain {
+                        window.makeMain()
+                    }
+                    
+                    if window.canBecomeKey || window.canBecomeMain {
+                        window.orderFront(nil)
+                    }
+                    
+                    print("Configured window: \(window.title) with style mask: \(window.styleMask)")
                 }
-                
-                // Set min size constraints
-                window.minSize = NSSize(width: 800, height: 600)
-                window.setContentSize(NSSize(width: 900, height: 700))
-                
-                // Set activation policy to ensure input
-                NSApp.setActivationPolicy(.regular)
-                
-                // Don't replace existing window delegate which might handle other things
-                if window.delegate == nil {
-                    let delegate = FocusDebuggingWindowDelegate()
-                    window.delegate = delegate
-                }
-                
-                if window.canBecomeKey {
-                    window.makeKey()
-                    window.makeMain()
-                    window.orderFront(nil)
-                }
-                
-                print("Configured window: \(window.title) with style mask: \(window.styleMask)")
             }
         }
     }
@@ -507,8 +561,12 @@ class AppState: ObservableObject {
     @Published var glucoseHistory: [GlucoseReading] = []
     @Published var isLoading = false
     @Published var error: Error?
+    @Published var selectedTab = 0 // Add selectedTab property
     
     private let libreViewService = LibreViewService()
+    
+    // Set to false to always use real API data
+    private let useTestData = false
     
     init() {
         Task {
@@ -532,6 +590,12 @@ class AppState: ObservableObject {
             }
             return isAuthenticated
         } catch {
+            if useTestData {
+                // Create test data with realistic timestamps if authentication fails
+                isAuthenticated = true
+                generateTestData()
+                return true
+            }
             isAuthenticated = false
             throw error
         }
@@ -539,19 +603,158 @@ class AppState: ObservableObject {
     
     func fetchLatestReadings() async {
         do {
+            if useTestData {
+                // Use test data instead of calling the API
+                generateTestData()
+                return
+            }
+            
+            print("🔄 Fetching glucose data from LibreView API...")
             let readings = try await libreViewService.fetchGlucoseData()
+            
+            // Debug API response
+            print("✅ API returned \(readings.count) readings")
             
             // Sort to ensure most recent first
             let sortedReadings = readings.sorted { $0.timestamp > $1.timestamp }
+            
+            // Check timestamp distribution
+            let calendar = Calendar.current
+            let uniqueDates = Set(sortedReadings.map { calendar.startOfDay(for: $0.timestamp) })
+            print("📊 Readings span \(uniqueDates.count) unique days")
+            
+            // Get date range of data
+            if let earliest = sortedReadings.last?.timestamp, let latest = sortedReadings.first?.timestamp {
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyy-MM-dd"
+                
+                let earliestStr = dateFormatter.string(from: earliest)
+                let latestStr = dateFormatter.string(from: latest)
+                
+                let daysBetween = calendar.dateComponents([.day], from: earliest, to: latest).day ?? 0
+                print("📅 Date range: \(earliestStr) to \(latestStr) (\(daysBetween) days)")
+                
+                // List all unique days in the data
+                let allDays = uniqueDates.sorted()
+                print("📆 Data available for these days:")
+                
+                var dayCount = 0
+                for day in allDays {
+                    let dayStr = dateFormatter.string(from: day)
+                    let countForDay = sortedReadings.filter { calendar.isDate($0.timestamp, inSameDayAs: day) }.count
+                    print("  • \(dayStr): \(countForDay) readings")
+                    dayCount += 1
+                    
+                    // Limit output to avoid flooding the console
+                    if dayCount >= 10 && allDays.count > 12 {
+                        print("  • ... and \(allDays.count - 10) more days")
+                        break
+                    }
+                }
+            }
+            
+            // Log some sample readings
+            print("📋 Sample of readings:")
+            for (index, reading) in sortedReadings.prefix(5).enumerated() {
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                let timestampStr = dateFormatter.string(from: reading.timestamp)
+                print("  [\(index)] \(reading.value) \(reading.unit) at \(timestampStr)")
+            }
             
             glucoseHistory = sortedReadings
             currentGlucoseReading = sortedReadings.first
             
             if let reading = currentGlucoseReading {
-                print("Current glucose: \(reading.value) \(reading.unit) at \(reading.timestamp)")
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                print("📱 Current glucose: \(reading.value) \(reading.unit) at \(dateFormatter.string(from: reading.timestamp))")
             }
         } catch {
+            print("❌ Error fetching glucose data: \(error.localizedDescription)")
             self.error = error
+            
+            if useTestData {
+                // Create test data if API fetch fails
+                generateTestData()
+            }
         }
+    }
+    
+    // Create test data with varied timestamps for proper time range filtering
+    private func generateTestData() {
+        // Create mock readings spanning multiple days
+        var mockReadings = [GlucoseReading]()
+        
+        // Today
+        let today = Date()
+        let todayValues = [5.6, 6.2, 7.1, 8.3, 7.5, 5.9, 6.4]
+        
+        // Yesterday
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+        let yesterdayValues = [4.5, 5.7, 6.8, 7.9, 6.2, 5.1, 5.8]
+        
+        // Two days ago
+        let twoDaysAgo = Calendar.current.date(byAdding: .day, value: -2, to: today)!
+        let twoDaysAgoValues = [4.9, 6.1, 7.2, 8.5, 7.7, 6.3, 5.5]
+        
+        // Last week
+        let lastWeek = Calendar.current.date(byAdding: .day, value: -6, to: today)!
+        let lastWeekValues = [5.2, 5.8, 6.7, 7.4, 6.8, 5.7, 6.1]
+        
+        // Create readings for today (every 2 hours)
+        for (index, value) in todayValues.enumerated() {
+            let timestamp = Calendar.current.date(byAdding: .hour, value: index * 2, to: today)!
+            let id = UUID().uuidString
+            let reading = GlucoseReading(id: id, timestamp: timestamp, value: value, unit: "mmol/L", isHigh: false, isLow: false)
+            mockReadings.append(reading)
+        }
+        
+        // Create readings for yesterday (every 2 hours)
+        for (index, value) in yesterdayValues.enumerated() {
+            let timestamp = Calendar.current.date(byAdding: .hour, value: index * 2, to: yesterday)!
+            let id = UUID().uuidString
+            let reading = GlucoseReading(id: id, timestamp: timestamp, value: value, unit: "mmol/L", isHigh: false, isLow: false)
+            mockReadings.append(reading)
+        }
+        
+        // Create readings for two days ago (every 3 hours)
+        for (index, value) in twoDaysAgoValues.enumerated() {
+            let timestamp = Calendar.current.date(byAdding: .hour, value: index * 3, to: twoDaysAgo)!
+            let id = UUID().uuidString
+            let reading = GlucoseReading(id: id, timestamp: timestamp, value: value, unit: "mmol/L", isHigh: false, isLow: false)
+            mockReadings.append(reading)
+        }
+        
+        // Create readings for last week (every 3 hours)
+        for (index, value) in lastWeekValues.enumerated() {
+            let timestamp = Calendar.current.date(byAdding: .hour, value: index * 3, to: lastWeek)!
+            let id = UUID().uuidString
+            let reading = GlucoseReading(id: id, timestamp: timestamp, value: value, unit: "mmol/L", isHigh: false, isLow: false)
+            mockReadings.append(reading)
+        }
+        
+        // Sort readings by timestamp, most recent first
+        mockReadings.sort { $0.timestamp > $1.timestamp }
+        
+        // Print debug info about the test data
+        print("Generated \(mockReadings.count) test readings spanning multiple days")
+        
+        if let earliest = mockReadings.map({ $0.timestamp }).min(),
+           let latest = mockReadings.map({ $0.timestamp }).max() {
+            let calendar = Calendar.current
+            let days = calendar.dateComponents([.day], from: earliest, to: latest).day ?? 0
+            print("Test data spans \(days) days from \(earliest) to \(latest)")
+            
+            // Check unique days
+            let uniqueDays = Set(mockReadings.map { calendar.startOfDay(for: $0.timestamp) })
+            print("Test data covers \(uniqueDays.count) unique days")
+        }
+        
+        // Update the app state
+        glucoseHistory = mockReadings
+        currentGlucoseReading = mockReadings.first
+        
+        print("Test data loaded. Run filtering tests with different time ranges.")
     }
 } 

@@ -9,6 +9,15 @@ struct GlucoseReading: Codable, Identifiable {
     let isHigh: Bool
     let isLow: Bool
     
+    init(id: String, timestamp: Date, value: Double, unit: String, isHigh: Bool, isLow: Bool) {
+        self.id = id
+        self.timestamp = timestamp
+        self.value = value
+        self.unit = unit
+        self.isHigh = isHigh
+        self.isLow = isLow
+    }
+    
     enum CodingKeys: String, CodingKey {
         case id
         case timestamp = "Timestamp"
@@ -20,24 +29,27 @@ struct GlucoseReading: Codable, Identifiable {
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = UUID().uuidString
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         
         // Parse timestamp - handle multiple formats
         let decodedTimestamp: Date
         do {
             // First try direct Date decoding
             decodedTimestamp = try container.decode(Date.self, forKey: .timestamp)
+            print("Successfully decoded timestamp directly: \(decodedTimestamp)")
         } catch {
             // If that fails, try string-based timestamp
             do {
                 let timestampString = try container.decode(String.self, forKey: .timestamp)
+                print("Decoding timestamp from string: \(timestampString)")
                 
-                // Try parsing with various formats
+                // Try parsing with ISO8601
                 let iso8601Formatter = ISO8601DateFormatter()
-                iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withColonSeparatorInTime]
                 
                 if let date = iso8601Formatter.date(from: timestampString) {
                     decodedTimestamp = date
+                    print("Parsed with ISO8601: \(date)")
                 } else {
                     // Try alternative date formats
                     let formatters: [DateFormatter] = [
@@ -70,9 +82,12 @@ struct GlucoseReading: Codable, Identifiable {
                     ]
                     
                     var parsedDate: Date? = nil
+                    var usedFormatter: DateFormatter? = nil
+                    
                     for formatter in formatters {
                         if let date = formatter.date(from: timestampString) {
                             parsedDate = date
+                            usedFormatter = formatter
                             break
                         }
                     }
@@ -80,11 +95,12 @@ struct GlucoseReading: Codable, Identifiable {
                     // If all formatters fail, try numeric timestamp
                     if parsedDate == nil, let numericTimestamp = Double(timestampString) {
                         parsedDate = Date(timeIntervalSince1970: numericTimestamp / 1000.0)
+                        print("Parsed numeric timestamp \(timestampString) to \(parsedDate!)")
                     }
                     
                     if let validDate = parsedDate {
                         decodedTimestamp = validDate
-                        print("Parsed timestamp \(timestampString) to \(validDate)")
+                        print("Parsed timestamp \(timestampString) to \(validDate)" + (usedFormatter != nil ? " using \(usedFormatter!.dateFormat!)" : ""))
                     } else {
                         print("Failed to parse timestamp: \(timestampString), using current date")
                         decodedTimestamp = Date()

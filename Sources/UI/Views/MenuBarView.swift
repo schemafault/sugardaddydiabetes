@@ -34,23 +34,41 @@ struct MenuBarView: View {
             
             Divider()
             
-            Button("Open Dashboard") {
-                openWindow(id: "main")
-            }
-            
-            Button("Refresh Data") {
-                Task {
-                    await appState.fetchLatestReadings()
+            VStack(spacing: 0) {
+                MenuRowButton(title: "Open Dashboard", icon: "square.grid.2x2") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    
+                    // Set the tab first, then open the window
+                    appState.selectedTab = 0
+                    
+                    DispatchQueue.main.async {
+                        // Open main window
+                        openWindow(id: "main")
+                    }
                 }
-            }
-            
-            Button("Settings") {
-                openWindow(id: "main", value: 2)
-            }
-            
-            if appState.isAuthenticated {
-                Button("Logout", role: .destructive) {
-                    appState.isAuthenticated = false
+                
+                MenuRowButton(title: "Refresh Data", icon: "arrow.clockwise") {
+                    Task {
+                        await appState.fetchLatestReadings()
+                    }
+                }
+                
+                MenuRowButton(title: "Settings", icon: "gear") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    
+                    // Set the tab first, then open the window
+                    appState.selectedTab = 2
+                    
+                    DispatchQueue.main.async {
+                        // Open main window
+                        openWindow(id: "main")
+                    }
+                }
+                
+                if appState.isAuthenticated {
+                    MenuRowButton(title: "Logout", icon: "rectangle.portrait.and.arrow.right", isDestructive: true) {
+                        appState.isAuthenticated = false
+                    }
                 }
             }
             
@@ -69,6 +87,45 @@ struct MenuBarView: View {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+struct MenuRowButton: View {
+    let title: String
+    let icon: String
+    var isDestructive: Bool = false
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .frame(width: 16, alignment: .center)
+                Text(title)
+                    .fontWeight(.regular)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .foregroundColor(isDestructive ? .red : .primary)
+    }
+}
+
+struct MenuRowButtonStyle: ButtonStyle {
+    var isDestructive: Bool
+    
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundColor(isDestructive ? .red : .primary)
+            .background(
+                configuration.isPressed ? 
+                    Color(.selectedControlColor) : 
+                    Color.clear
+            )
+            .cornerRadius(4)
     }
 }
 
