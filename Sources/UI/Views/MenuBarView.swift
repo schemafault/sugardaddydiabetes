@@ -70,6 +70,10 @@ struct MenuBarView: View {
                         appState.isAuthenticated = false
                     }
                 }
+                
+                MenuRowButton(title: "Quit App", icon: "xmark.circle", isDestructive: true) {
+                    NSApplication.shared.terminate(nil)
+                }
             }
             
             Divider()
