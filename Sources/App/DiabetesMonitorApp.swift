@@ -603,13 +603,11 @@ struct AppKitTextField: NSViewRepresentable {
 
 @MainActor
 class AppState: ObservableObject {
-    // Add missing method for clearAllData
+    // Method to clear all data
     func clearAllData() async {
         glucoseHistory = []
         currentGlucoseReading = nil
-        // Clear CoreData if needed
-        // Could be expanded to actually clear the database
-        print("Cleared all data from memory")
+        print("Cleared data from memory - all API data is still in CoreData database")
     }
     
     // Refactor verifyCredentials to return a result with success/message
@@ -641,7 +639,7 @@ class AppState: ObservableObject {
     private let libreViewService = LibreViewService()
     private let coreDataManager = ProgrammaticCoreDataManager.shared
     
-    // Set to false to always use real API data
+    // Always use real API data, never test data
     private let useTestData = false
     
     init() {
@@ -660,7 +658,58 @@ class AppState: ObservableObject {
     
     // Load saved readings from database and calculate trends
     private func loadSavedReadings() {
+        print("🔃 Loading saved readings from CoreData...")
         var savedReadings = coreDataManager.fetchAllGlucoseReadings()
+        
+        print("📊 CRITICAL: Loaded \(savedReadings.count) readings from CoreData at startup")
+        
+        // Check date range to debug
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        
+        if !savedReadings.isEmpty {
+            // Find earliest and latest date
+            if let earliest = savedReadings.map({ $0.timestamp }).min(),
+               let latest = savedReadings.map({ $0.timestamp }).max() {
+                print("📅 CRITICAL DATA RANGE: \(dateFormatter.string(from: earliest)) to \(dateFormatter.string(from: latest))")
+                
+                // Count unique days
+                let calendar = Calendar.current
+                let uniqueDays = Set(savedReadings.map { calendar.startOfDay(for: $0.timestamp) })
+                print("📊 CRITICAL: Data spans \(uniqueDays.count) unique days")
+                
+                // Print days
+                print("📆 Available days:")
+                let sortedDays = uniqueDays.sorted()
+                for (index, day) in sortedDays.enumerated() {
+                    let dayStr = dateFormatter.string(from: day).prefix(10)
+                    let countForDay = savedReadings.filter { calendar.isDate($0.timestamp, inSameDayAs: day) }.count
+                    print("  • \(dayStr): \(countForDay) readings")
+                    
+                    // Limit output to first 5 days
+                    if index >= 4 && sortedDays.count > 5 {
+                        print("  • ... and \(sortedDays.count - 5) more days")
+                        break
+                    }
+                }
+            }
+        }
+        
+        // Print date range of the data
+        if !savedReadings.isEmpty {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            
+            if let earliest = savedReadings.map({ $0.timestamp }).min(),
+               let latest = savedReadings.map({ $0.timestamp }).max() {
+                print("📅 DEBUG: Date range of data: \(dateFormatter.string(from: earliest)) to \(dateFormatter.string(from: latest))")
+            }
+            
+            // Check unique days
+            let calendar = Calendar.current
+            let uniqueDays = Set(savedReadings.map { calendar.startOfDay(for: $0.timestamp) })
+            print("📆 DEBUG: Data covers \(uniqueDays.count) unique days")
+        }
         
         if !savedReadings.isEmpty {
             // Sort by timestamp, most recent first
@@ -726,12 +775,7 @@ class AppState: ObservableObject {
             }
             return isAuthenticated
         } catch {
-            if useTestData {
-                // Create test data with realistic timestamps if authentication fails
-                isAuthenticated = true
-                generateTestData()
-                return true
-            }
+            // Never use test data - always rely on real API authentication
             isAuthenticated = false
             throw error
         }
@@ -739,13 +783,8 @@ class AppState: ObservableObject {
     
     func fetchLatestReadings() async {
         do {
-            if useTestData {
-                // Use test data instead of calling the API
-                generateTestData()
-                return
-            }
-            
-            print("🔄 Fetching glucose data from LibreView API...")
+            // Always fetch real glucose data from the API
+            print("🔄 Fetching real glucose data from LibreView API...")
             let readings = try await libreViewService.fetchGlucoseData()
             
             // Debug API response
@@ -845,8 +884,13 @@ class AppState: ObservableObject {
             coreDataManager.saveGlucoseReadings(enhancedReadings)
             print("💾 Saved \(enhancedReadings.count) readings with calculated trends to database")
             
-            self.glucoseHistory = enhancedReadings
-            self.currentGlucoseReading = enhancedReadings.first
+            // CRITICAL FIX: Load ALL readings from CoreData instead of just using the ones from API
+            // This ensures we see ALL historical data, not just what the API returned this time
+            let allReadings = coreDataManager.fetchAllGlucoseReadings()
+            print("⚠️ CRITICAL: Loaded \(allReadings.count) total readings from CoreData after saving new data")
+            
+            self.glucoseHistory = allReadings
+            self.currentGlucoseReading = allReadings.first
             
             print("📱 Updated readings with calculated trends")
             
@@ -859,87 +903,10 @@ class AppState: ObservableObject {
             print("❌ Error fetching glucose data: \(error.localizedDescription)")
             self.error = error
             
-            if useTestData {
-                // Create test data if API fetch fails
-                generateTestData()
-            }
+            // Never use test data - always rely on real API data
+            // Still keep existing CoreData readings in memory
         }
     }
     
-    // Create test data with varied timestamps for proper time range filtering
-    private func generateTestData() {
-        // Create mock readings spanning multiple days
-        var mockReadings = [GlucoseReading]()
-        
-        // Today
-        let today = Date()
-        let todayValues = [5.6, 6.2, 7.1, 8.3, 7.5, 5.9, 6.4]
-        
-        // Yesterday
-        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
-        let yesterdayValues = [4.5, 5.7, 6.8, 7.9, 6.2, 5.1, 5.8]
-        
-        // Two days ago
-        let twoDaysAgo = Calendar.current.date(byAdding: .day, value: -2, to: today)!
-        let twoDaysAgoValues = [4.9, 6.1, 7.2, 8.5, 7.7, 6.3, 5.5]
-        
-        // Last week
-        let lastWeek = Calendar.current.date(byAdding: .day, value: -6, to: today)!
-        let lastWeekValues = [5.2, 5.8, 6.7, 7.4, 6.8, 5.7, 6.1]
-        
-        // Create readings for today (every 2 hours)
-        for (index, value) in todayValues.enumerated() {
-            let timestamp = Calendar.current.date(byAdding: .hour, value: index * 2, to: today)!
-            let id = UUID().uuidString
-            let reading = GlucoseReading(id: id, timestamp: timestamp, value: value, unit: "mmol/L", isHigh: false, isLow: false)
-            mockReadings.append(reading)
-        }
-        
-        // Create readings for yesterday (every 2 hours)
-        for (index, value) in yesterdayValues.enumerated() {
-            let timestamp = Calendar.current.date(byAdding: .hour, value: index * 2, to: yesterday)!
-            let id = UUID().uuidString
-            let reading = GlucoseReading(id: id, timestamp: timestamp, value: value, unit: "mmol/L", isHigh: false, isLow: false)
-            mockReadings.append(reading)
-        }
-        
-        // Create readings for two days ago (every 3 hours)
-        for (index, value) in twoDaysAgoValues.enumerated() {
-            let timestamp = Calendar.current.date(byAdding: .hour, value: index * 3, to: twoDaysAgo)!
-            let id = UUID().uuidString
-            let reading = GlucoseReading(id: id, timestamp: timestamp, value: value, unit: "mmol/L", isHigh: false, isLow: false)
-            mockReadings.append(reading)
-        }
-        
-        // Create readings for last week (every 3 hours)
-        for (index, value) in lastWeekValues.enumerated() {
-            let timestamp = Calendar.current.date(byAdding: .hour, value: index * 3, to: lastWeek)!
-            let id = UUID().uuidString
-            let reading = GlucoseReading(id: id, timestamp: timestamp, value: value, unit: "mmol/L", isHigh: false, isLow: false)
-            mockReadings.append(reading)
-        }
-        
-        // Sort readings by timestamp, most recent first
-        mockReadings.sort { $0.timestamp > $1.timestamp }
-        
-        // Print debug info about the test data
-        print("Generated \(mockReadings.count) test readings spanning multiple days")
-        
-        if let earliest = mockReadings.map({ $0.timestamp }).min(),
-           let latest = mockReadings.map({ $0.timestamp }).max() {
-            let calendar = Calendar.current
-            let days = calendar.dateComponents([.day], from: earliest, to: latest).day ?? 0
-            print("Test data spans \(days) days from \(earliest) to \(latest)")
-            
-            // Check unique days
-            let uniqueDays = Set(mockReadings.map { calendar.startOfDay(for: $0.timestamp) })
-            print("Test data covers \(uniqueDays.count) unique days")
-        }
-        
-        // Update the app state
-        glucoseHistory = mockReadings
-        currentGlucoseReading = mockReadings.first
-        
-        print("Test data loaded. Run filtering tests with different time ranges.")
-    }
+    // No test data generation function - always using real API data only
 } 

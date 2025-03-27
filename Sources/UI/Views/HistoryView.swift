@@ -5,7 +5,8 @@ struct HistoryView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
     
-    @State private var selectedTimeFrame: TimeFrame = .day
+    // CRITICAL: Default to All to ensure users see ALL historical data
+    @State private var selectedTimeFrame: TimeFrame = .all
     @State private var searchText: String = ""
     @State private var showFilters: Bool = false
     @State private var filterRange: GlucoseReading.RangeStatus? = nil
@@ -20,26 +21,79 @@ struct HistoryView: View {
     }
     
     private var filteredReadings: [GlucoseReading] {
+        // Check what's in appState.glucoseHistory
+        if appState.glucoseHistory.isEmpty {
+            print("DEBUG: glucoseHistory in AppState is EMPTY!")
+        } else {
+            let earliest = appState.glucoseHistory.map { $0.timestamp }.min()!
+            let latest = appState.glucoseHistory.map { $0.timestamp }.max()!
+            print("DEBUG: AppState.glucoseHistory spans from \(earliest) to \(latest)")
+            print("DEBUG: Has \(appState.glucoseHistory.count) readings")
+        }
+        
         let timeFiltered = filteredByTime(appState.glucoseHistory)
         let searchFiltered = filteredBySearch(timeFiltered)
-        return filteredByRange(searchFiltered)
+        let rangeFiltered = filteredByRange(searchFiltered)
+        
+        // Sort by timestamp (newest first) for consistency
+        return rangeFiltered.sorted(by: { $0.timestamp > $1.timestamp })
     }
     
     private func filteredByTime(_ readings: [GlucoseReading]) -> [GlucoseReading] {
         let calendar = Calendar.current
         let now = Date()
         
+        // Debug: print date range of all readings
+        if !readings.isEmpty {
+            let timestamps = readings.map { $0.timestamp }
+            let oldest = timestamps.min()!
+            let newest = timestamps.max()!
+            print("DEBUG: All readings span from \(oldest) to \(newest)")
+            print("DEBUG: Total of \(readings.count) readings available")
+            
+            // Print distribution by day
+            let days = Set(readings.map { calendar.startOfDay(for: $0.timestamp) }).sorted()
+            print("DEBUG: Data available for \(days.count) unique days:")
+            for day in days.prefix(7) { // Show first 7 days
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyy-MM-dd"
+                let dayString = dateFormatter.string(from: day)
+                let count = readings.filter { calendar.isDate($0.timestamp, inSameDayAs: day) }.count
+                print("DEBUG:   \(dayString): \(count) readings")
+            }
+            if days.count > 7 {
+                print("DEBUG:   ... and \(days.count - 7) more days")
+            }
+        }
+        
         switch selectedTimeFrame {
         case .day:
             let dayAgo = calendar.date(byAdding: .day, value: -1, to: now) ?? now
-            return readings.filter { $0.timestamp >= dayAgo }
+            let filtered = readings.filter { $0.timestamp >= dayAgo }
+            print("DEBUG: Day filter returned \(filtered.count) readings")
+            return filtered
         case .week:
             let weekAgo = calendar.date(byAdding: .day, value: -7, to: now) ?? now
-            return readings.filter { $0.timestamp >= weekAgo }
+            let filtered = readings.filter { $0.timestamp >= weekAgo }
+            print("DEBUG: Week filter returned \(filtered.count) readings")
+            return filtered
         case .month:
             let monthAgo = calendar.date(byAdding: .month, value: -1, to: now) ?? now
-            return readings.filter { $0.timestamp >= monthAgo }
+            let filtered = readings.filter { $0.timestamp >= monthAgo }
+            print("DEBUG: Month filter returned \(filtered.count) readings")
+            return filtered
         case .all:
+            print("DEBUG: All filter returned \(readings.count) readings")
+            
+            // CRITICAL FIX: The issue might be that the LibreView API only returns recent data,
+            // and the CoreData database isn't being populated with historical data
+            // Let's check if we can force load the test data which has a longer date range
+            
+            if readings.count < 100 { // If we have suspiciously few readings
+                print("DEBUG: IMPORTANT - Only \(readings.count) readings in database. API may only return recent data.")
+                print("DEBUG: Consider using the generateTestData() function in AppState to create historical data for testing")
+            }
+            
             return readings
         }
     }
@@ -79,6 +133,8 @@ struct HistoryView: View {
             } else {
                 historyContent
             }
+            
+            // No test data button - using only real API data
         }
         .padding()
         .navigationTitle("Glucose History")
@@ -223,8 +279,8 @@ struct HistoryView: View {
                     .padding(.bottom, 16)
             }
             
-            // Table
-            Table(filteredReadings.sorted(by: { $0.timestamp > $1.timestamp })) {
+            // Table - Using pre-sorted filteredReadings
+            Table(filteredReadings) {
                 TableColumn("Time") { reading in
                     Text(formatDate(reading.timestamp))
                         .font(.subheadline)
@@ -299,7 +355,7 @@ struct HistoryView: View {
             Button("Clear Filters") {
                 searchText = ""
                 filterRange = nil
-                selectedTimeFrame = .day
+                selectedTimeFrame = .all
             }
             .buttonStyle(.borderedProminent)
             .padding(.top, 8)

@@ -101,26 +101,36 @@ struct TimeInRangeCalendarView: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Calendar controls
-            calendarHeader
-            
-            // Weekday headers
-            weekdayHeaderRow
-            
-            // Calendar grid
-            calendarGrid
-            
-            // Legend
-            calendarLegend
-            
-            // Selected day detail
-            if let selectedDate = selectedDate {
-                selectedDayDetailView(date: selectedDate)
-                    .padding()
-                    .background(Material.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .padding(.top, 8)
+        ScrollView {
+            VStack(spacing: 20) {
+                // Calendar controls
+                calendarHeader
+                
+                // Weekday headers
+                weekdayHeaderRow
+                
+                // Calendar grid
+                calendarGrid
+                
+                // Legend
+                calendarLegend
+                
+                // Selected day detail - wrapped in fixed height container to prevent UI shifting
+                VStack {
+                    if let selectedDate = selectedDate {
+                        selectedDayDetailView(date: selectedDate)
+                            .padding()
+                            .background(Material.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    } else {
+                        // Empty spacer when no date is selected to maintain consistent height
+                        Color.clear
+                    }
+                }
+                .frame(height: 120)
+                .padding(.top, 8)
+                
+                Spacer(minLength: 40) // Extra space at the bottom
             }
         }
         .padding()
@@ -202,6 +212,7 @@ struct TimeInRangeCalendarView: View {
         let isSelected = selectedDate.map { calendar.isDate($0, inSameDayAs: date) } ?? false
         let isToday = calendar.isDateInToday(date)
         let dayNumber = calendar.component(.day, from: date)
+        let hasData = timeInRangeForDate(date) != nil
         
         return ZStack {
             Rectangle()
@@ -229,24 +240,53 @@ struct TimeInRangeCalendarView: View {
             selectedDate = date
         }
         .onLongPressGesture {
-            selectedDate = date
-            showingDayDetail = true
+            // Only show detail if we have data for this day
+            if hasData {
+                selectedDate = date
+                showingDayDetail = true
+            } else {
+                // If no data, just select the date without showing detail
+                selectedDate = date
+            }
         }
+        // Add visual feedback for long-pressable days
+        .contentShape(Rectangle())
+        .opacity(hasData ? 1.0 : 0.8)
     }
     
     // Calendar legend
     private var calendarLegend: some View {
-        HStack(spacing: 16) {
-            legendItem(color: .green.opacity(0.6), label: "In Range")
-            legendItem(color: .yellow.opacity(0.6), label: "Low")
-            legendItem(color: .red.opacity(0.6), label: "High")
-            legendItem(color: .gray.opacity(0.2), label: "No Data")
+        VStack(spacing: 8) {
+            // Color legend
+            HStack(spacing: 16) {
+                legendItem(color: .green.opacity(0.6), label: "In Range")
+                legendItem(color: .yellow.opacity(0.6), label: "Low")
+                legendItem(color: .red.opacity(0.6), label: "High")
+                legendItem(color: .gray.opacity(0.2), label: "No Data")
+                
+                Spacer()
+            }
             
-            Spacer()
-            
-            Text("Long press for details")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            // Interaction hints
+            HStack {
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("Tap to select a day")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 4) {
+                        Text("Long press for day details")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Image(systemName: "hand.tap.fill")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    }
+                }
+            }
         }
         .padding(.top, 8)
     }
@@ -398,24 +438,49 @@ struct DayDetailView: View {
     }
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    // Day summary
-                    daySummaryView
-                    
-                    // Chart of readings for the day
-                    dayChartView
-                    
-                    // List of readings
-                    readingsListView
+                if dayReadings.isEmpty {
+                    // No data view
+                    VStack(spacing: 20) {
+                        Spacer(minLength: 60)
+                        
+                        Image(systemName: "calendar.badge.exclamationmark")
+                            .font(.system(size: 60))
+                            .foregroundColor(.secondary)
+                            .padding()
+                        
+                        Text("No Readings Available")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        
+                        Text("There is no glucose data available for \(formatDate(date))")
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal)
+                        
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                } else {
+                    // Data available view
+                    VStack(spacing: 20) {
+                        // Day summary
+                        daySummaryView
+                        
+                        // Chart of readings for the day
+                        dayChartView
+                        
+                        // List of readings
+                        readingsListView
+                    }
+                    .padding()
                 }
-                .padding()
             }
             .navigationTitle(formatDate(date))
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Close") {
                         dismiss()
                     }

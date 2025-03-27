@@ -48,13 +48,7 @@ struct ContentView: View {
             .navigationTitle("Glucose Monitor")
             .listStyle(.sidebar)
             .frame(minWidth: 220)
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    Button(action: { showSidebar.toggle() }) {
-                        Image(systemName: "sidebar.left")
-                    }
-                }
-            }
+            // Remove redundant sidebar toggle - macOS provides this automatically
         } detail: {
             ZStack {
                 // Background gradient

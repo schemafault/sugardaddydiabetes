@@ -157,31 +157,43 @@ struct AGPView: View {
                 .foregroundStyle(Color.green.opacity(0.1))
                 
                 // 10th to 90th percentile band (widest)
-                AreaMark(
-                    x: \.time,
-                    yStart: \.p10,
-                    yEnd: \.p90
-                )
-                .foregroundStyle(Color.blue.opacity(0.1))
-                .interpolationMethod(.catmullRom)
+                if !agpData.timePoints.isEmpty {
+                    ForEach(agpData.timePoints) { point in
+                        AreaMark(
+                            x: .value("Time", point.time),
+                            yStart: .value("10th", point.p10),
+                            yEnd: .value("90th", point.p90)
+                        )
+                        .foregroundStyle(Color.blue.opacity(0.1))
+                        .interpolationMethod(.catmullRom)
+                    }
+                }
                 
                 // 25th to 75th percentile band (middle)
-                AreaMark(
-                    x: \.time,
-                    yStart: \.p25,
-                    yEnd: \.p75
-                )
-                .foregroundStyle(Color.blue.opacity(0.2))
-                .interpolationMethod(.catmullRom)
+                if !agpData.timePoints.isEmpty {
+                    ForEach(agpData.timePoints) { point in
+                        AreaMark(
+                            x: .value("Time", point.time),
+                            yStart: .value("25th", point.p25),
+                            yEnd: .value("75th", point.p75)
+                        )
+                        .foregroundStyle(Color.blue.opacity(0.2))
+                        .interpolationMethod(.catmullRom)
+                    }
+                }
                 
                 // Median line (50th percentile)
-                LineMark(
-                    x: \.time,
-                    y: \.median
-                )
-                .foregroundStyle(Color.blue)
-                .lineStyle(StrokeStyle(lineWidth: 3))
-                .interpolationMethod(.catmullRom)
+                if !agpData.timePoints.isEmpty {
+                    ForEach(agpData.timePoints) { point in
+                        LineMark(
+                            x: .value("Time", point.time),
+                            y: .value("Median", point.median)
+                        )
+                        .foregroundStyle(Color.blue)
+                        .lineStyle(StrokeStyle(lineWidth: 3))
+                        .interpolationMethod(.catmullRom)
+                    }
+                }
                 
                 // Threshold lines
                 RuleMark(y: .value("Low Threshold", getThreshold("lowThreshold")))

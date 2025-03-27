@@ -141,10 +141,10 @@ actor LibreViewService {
     }
     
     private func fetchGlucoseGraph(patientId: String, token: String) async throws -> [GlucoseReading] {
-        // Request 7 days of data to get whatever history is available
+        // Request 90 days of data to get more historical data
         let calendar = Calendar.current
         let endDate = Date()
-        let startDate = calendar.date(byAdding: .day, value: -7, to: endDate)!
+        let startDate = calendar.date(byAdding: .day, value: -90, to: endDate)!
         
         // Format dates for API request
         let dateFormatter = DateFormatter()
@@ -152,7 +152,8 @@ actor LibreViewService {
         let startDateStr = dateFormatter.string(from: startDate)
         let endDateStr = dateFormatter.string(from: endDate)
         
-        print("Requesting glucose data from \(startDateStr) to \(endDateStr) (7 days)")
+        print("⚠️ CRITICAL: Requesting glucose data from \(startDateStr) to \(endDateStr) (90 days)")
+        print("⚠️ NOTE: The LibreView API may only return recent data despite the date range request")
         
         // Create URL with date range parameters (properly escaped)
         var urlComponents = URLComponents(string: "\(baseURL)/llu/connections/\(patientId)/graph")!

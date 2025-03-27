@@ -1,255 +1,358 @@
 import SwiftUI
-import AppKit
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
-    @State private var username: String = UserDefaults.standard.string(forKey: "username") ?? ""
-    @State private var password: String = UserDefaults.standard.string(forKey: "password") ?? ""
-    @State private var selectedUnit: String = UserDefaults.standard.string(forKey: "unit") ?? "mg/dL"
-    @State private var lowThreshold: String
-    @State private var highThreshold: String
-    @State private var showingAlert = false
-    @State private var alertMessage = ""
-    @State private var isLoading = false
-    @FocusState private var focusedField: Field?
+    @Environment(\.colorScheme) private var colorScheme
     
-    init() {
-        // Set initial values based on unit
-        let unit = UserDefaults.standard.string(forKey: "unit") ?? "mg/dL"
-        if unit == "mmol" {
-            _lowThreshold = State(initialValue: UserDefaults.standard.string(forKey: "lowThreshold") ?? "3.0")
-            _highThreshold = State(initialValue: UserDefaults.standard.string(forKey: "highThreshold") ?? "10.0")
-        } else {
-            _lowThreshold = State(initialValue: UserDefaults.standard.string(forKey: "lowThreshold") ?? "70")
-            _highThreshold = State(initialValue: UserDefaults.standard.string(forKey: "highThreshold") ?? "180")
-        }
-    }
+    @AppStorage("username") private var username: String = ""
+    @AppStorage("password") private var password: String = ""
+    @AppStorage("unit") private var unit: String = "mg/dL"
+    @AppStorage("lowThreshold") private var lowThreshold: String = "70"
+    @AppStorage("highThreshold") private var highThreshold: String = "180"
+    @AppStorage("updateInterval") private var updateInterval: Int = 15
     
-    enum Field: Hashable {
-        case username
-        case password
-        case lowThreshold
-        case highThreshold
-    }
+    @State private var showingDeletionConfirmation = false
+    @State private var isEditingAccount = false
+    @State private var newUsername = ""
+    @State private var newPassword = ""
+    
+    @State private var isSaving = false
+    @State private var showingLoginError = false
+    @State private var loginErrorMessage = ""
+    
+    let availableIntervals = [5, 10, 15, 30, 60]
     
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                // LibreView Credentials Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("LibreView Credentials")
-                        .font(.headline)
-                    
-                    AppKitTextField(text: $username, placeholder: "Username/Email", onFocus: {
-                        print("Settings: Native username field focused")
-                        // Ensure app is active when this happens
-                        NSApplication.shared.activate(ignoringOtherApps: true)
-                    }, onTextChange: { newValue in
-                        print("Settings: Native username changed to: \(newValue)")
-                    })
-                    .frame(height: 24)
-                    
-                    AppKitTextField(text: $password, placeholder: "Password", secure: true, onFocus: {
-                        print("Settings: Native password field focused")
-                        // Ensure app is active when this happens
-                        NSApplication.shared.activate(ignoringOtherApps: true)
-                    }, onTextChange: { newValue in
-                        print("Settings: Native password changed to: \(newValue.count) characters")
-                    })
-                    .frame(height: 24)
-                }
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(10)
+            VStack(alignment: .leading, spacing: 30) {
+                accountSection
+                unitsSection
+                thresholdsSection
+                updateIntervalSection
+                dataManagementSection
                 
-                // Unit Selection Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Units")
-                        .font(.headline)
+                Spacer()
+            }
+            .padding()
+            .frame(maxWidth: 600, alignment: .center)
+        }
+        .navigationTitle("Settings")
+        .alert("Error", isPresented: $showingLoginError) {
+            Button("OK") {}
+        } message: {
+            Text(loginErrorMessage)
+        }
+        .alert("Confirm Data Deletion", isPresented: $showingDeletionConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    await appState.clearAllData()
+                }
+            }
+        } message: {
+            Text("This will permanently delete all your stored glucose readings. This action cannot be undone.")
+        }
+    }
+    
+    private var accountSection: some View {
+        SettingsSection(title: "LibreView Account", icon: "person.fill") {
+            if isEditingAccount {
+                VStack(spacing: 15) {
+                    TextField("Username/Email", text: $newUsername)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
                     
-                    Picker("Unit", selection: $selectedUnit) {
-                        Text("mg/dL").tag("mg/dL")
-                        Text("mmol/L").tag("mmol")
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: selectedUnit) { newUnit in
-                        UserDefaults.standard.set(newUnit, forKey: "unit")
+                    SecureField("Password", text: $newPassword)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                    
+                    HStack {
+                        Button("Cancel") {
+                            isEditingAccount = false
+                            newUsername = username
+                            newPassword = password
+                        }
+                        .buttonStyle(.bordered)
                         
-                        // Convert threshold values
-                        if let lowValue = Double(lowThreshold),
-                           let highValue = Double(highThreshold) {
-                            if newUnit == "mmol" {
-                                // Convert from mg/dL to mmol/L
-                                lowThreshold = String(format: "%.1f", lowValue / 18.0182)
-                                highThreshold = String(format: "%.1f", highValue / 18.0182)
-                            } else {
-                                // Convert from mmol/L to mg/dL
-                                lowThreshold = String(format: "%.0f", lowValue * 18.0182)
-                                highThreshold = String(format: "%.0f", highValue * 18.0182)
+                        Spacer()
+                        
+                        Button("Save") {
+                            saveAccountInfo()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(newUsername.isEmpty || newPassword.isEmpty || isSaving)
+                        .overlay {
+                            if isSaving {
+                                ProgressView()
+                                    .scaleEffect(0.7)
                             }
+                        }
+                    }
+                }
+                .padding()
+                .background(Material.thin)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                HStack {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !username.isEmpty {
+                            Text(username)
+                                .font(.headline)
                             
-                            // Save the converted values
-                            UserDefaults.standard.set(lowThreshold, forKey: "lowThreshold")
-                            UserDefaults.standard.set(highThreshold, forKey: "highThreshold")
-                        }
-                    }
-                }
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(10)
-                
-                // Alert Settings Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Alert Settings")
-                        .font(.headline)
-                    
-                    HStack {
-                        Text("Low Threshold")
-                        Spacer()
-                        AppKitTextField(text: $lowThreshold, placeholder: "Low", onFocus: {
-                            print("Settings: Low threshold field focused")
-                            NSApplication.shared.activate(ignoringOtherApps: true)
-                        }, onTextChange: { newValue in
-                            print("Settings: Low threshold changed to: \(newValue)")
-                        })
-                        .frame(width: 80, height: 24)
-                        Text(selectedUnit == "mmol" ? "mmol/L" : "mg/dL")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    HStack {
-                        Text("High Threshold")
-                        Spacer()
-                        AppKitTextField(text: $highThreshold, placeholder: "High", onFocus: {
-                            print("Settings: High threshold field focused")
-                            NSApplication.shared.activate(ignoringOtherApps: true)
-                        }, onTextChange: { newValue in
-                            print("Settings: High threshold changed to: \(newValue)")
-                        })
-                        .frame(width: 80, height: 24)
-                        Text(selectedUnit == "mmol" ? "mmol/L" : "mg/dL")
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(10)
-                
-                // Buttons Section
-                VStack(spacing: 12) {
-                    Button(action: saveChanges) {
-                        if isLoading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle())
+                            Text("•••••••••")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
                         } else {
-                            Text("Save Changes")
-                                .frame(maxWidth: .infinity)
+                            Text("No account configured")
+                                .font(.headline)
+                                .foregroundColor(.secondary)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isLoading)
-                    .keyboardShortcut(.return, modifiers: .command)
                     
-                    Button(action: logout) {
-                        Text("Logout")
-                            .frame(maxWidth: .infinity)
-                            .foregroundColor(.red)
+                    Spacer()
+                    
+                    Button(action: {
+                        isEditingAccount = true
+                        newUsername = username
+                        newPassword = password
+                    }) {
+                        Text(username.isEmpty ? "Add Account" : "Edit")
                     }
                     .buttonStyle(.bordered)
-                    .disabled(isLoading || !appState.isAuthenticated)
+                }
+                .padding()
+                .background(Material.thin)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+    
+    private var unitsSection: some View {
+        SettingsSection(title: "Glucose Units", icon: "gauge") {
+            Picker("Glucose Units", selection: $unit) {
+                Text("mg/dL").tag("mg/dL")
+                Text("mmol/L").tag("mmol")
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: unit) { oldValue, newValue in
+                updateThresholdValues()
+            }
+        }
+    }
+    
+    private var thresholdsSection: some View {
+        SettingsSection(title: "Glucose Thresholds", icon: "arrow.up.arrow.down") {
+            VStack(spacing: 15) {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text("Low Threshold")
+                            .font(.subheadline)
+                        
+                        Spacer()
+                        
+                        TextField("", text: $lowThreshold)
+                            .multilineTextAlignment(.trailing)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                        
+                        Text(unit == "mmol" ? "mmol/L" : "mg/dL")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal)
+                    
+                    Slider(value: lowThresholdDouble, in: sliderRange.0...sliderRange.1, step: sliderStep)
+                        .tint(.yellow)
+                        .padding(.horizontal)
+                }
+                
+                Divider()
+                
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text("High Threshold")
+                            .font(.subheadline)
+                        
+                        Spacer()
+                        
+                        TextField("", text: $highThreshold)
+                            .multilineTextAlignment(.trailing)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                        
+                        Text(unit == "mmol" ? "mmol/L" : "mg/dL")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal)
+                    
+                    Slider(value: highThresholdDouble, in: sliderRange.0...sliderRange.1, step: sliderStep)
+                        .tint(.red)
+                        .padding(.horizontal)
                 }
             }
             .padding()
+            .background(Material.thin)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-        .navigationTitle("Settings")
-        .alert("Error", isPresented: $showingAlert) {
-            Button("OK") { }
-        } message: {
-            Text(alertMessage)
-        }
-        .onAppear {
-            print("Settings view appeared - native fields will handle focus")
-            
-            // Give UI time to fully initialize before activating window
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                // Force app to front
-                NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+    
+    private var updateIntervalSection: some View {
+        SettingsSection(title: "Update Interval", icon: "clock.arrow.circlepath") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Check for new readings every:")
+                    .font(.subheadline)
                 
-                // Find and properly activate the settings window
-                if let window = NSApplication.shared.windows.first(where: { $0.isVisible && $0.title.contains("Settings") }) {
-                    // Make sure window is properly configured for text input
-                    window.makeKey()
-                    window.makeMain()
-                    window.orderFront(nil)
-                    
-                    // Reset responder chain
-                    window.makeFirstResponder(nil)
-                    
-                    print("Settings window properly activated and configured")
+                Picker("Update Interval", selection: $updateInterval) {
+                    ForEach(availableIntervals, id: \.self) { interval in
+                        Text("\(interval) minutes").tag(interval)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+            .padding()
+            .background(Material.thin)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+    
+    private var dataManagementSection: some View {
+        SettingsSection(title: "Data Management", icon: "externaldrive") {
+            VStack(alignment: .leading, spacing: 10) {
+                Button(action: { showingDeletionConfirmation = true }) {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("Clear All Data")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding()
+                    .background(Material.thin)
+                    .foregroundColor(.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                
+                Group {
+                    Text("This will permanently delete all readings stored in the app.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("Your LibreView account data will not be affected.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .padding()
+            .background(Material.thin)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+    
+    // Helper properties and methods
+    private var sliderRange: (Double, Double) {
+        if unit == "mmol" {
+            return (3.0, 20.0)
+        } else {
+            return (54.0, 360.0)
+        }
+    }
+    
+    private var sliderStep: Double {
+        return unit == "mmol" ? 0.1 : 1.0
+    }
+    
+    private var lowThresholdDouble: Binding<Double> {
+        Binding<Double>(
+            get: { Double(lowThreshold) ?? (unit == "mmol" ? 4.0 : 70.0) },
+            set: { lowThreshold = String(format: unit == "mmol" ? "%.1f" : "%.0f", $0) }
+        )
+    }
+    
+    private var highThresholdDouble: Binding<Double> {
+        Binding<Double>(
+            get: { Double(highThreshold) ?? (unit == "mmol" ? 10.0 : 180.0) },
+            set: { highThreshold = String(format: unit == "mmol" ? "%.1f" : "%.0f", $0) }
+        )
+    }
+    
+    private func updateThresholdValues() {
+        if unit == "mmol" {
+            // Convert from mg/dL to mmol/L
+            if let lowValue = Double(lowThreshold), lowValue > 30 {
+                lowThreshold = String(format: "%.1f", lowValue / 18.0182)
+            }
+            if let highValue = Double(highThreshold), highValue > 30 {
+                highThreshold = String(format: "%.1f", highValue / 18.0182)
+            }
+        } else {
+            // Convert from mmol/L to mg/dL
+            if let lowValue = Double(lowThreshold), lowValue < 30 {
+                lowThreshold = String(format: "%.0f", lowValue * 18.0182)
+            }
+            if let highValue = Double(highThreshold), highValue < 30 {
+                highThreshold = String(format: "%.0f", highValue * 18.0182)
+            }
+        }
+    }
+    
+    private func saveAccountInfo() {
+        isSaving = true
+        
+        Task {
+            // Attempt to verify credentials before saving
+            let result = await appState.verifyCredentials(username: newUsername, password: newPassword)
+            
+            await MainActor.run {
+                isSaving = false
+                
+                if result.success {
+                    username = newUsername
+                    password = newPassword
+                    isEditingAccount = false
+                    appState.isAuthenticated = true
+                } else {
+                    loginErrorMessage = result.message ?? "Failed to verify account credentials. Please check your username and password."
+                    showingLoginError = true
                 }
             }
         }
-        .onDisappear {
-            print("Settings view disappeared")
-        }
+    }
+}
+
+struct SettingsSection<Content: View>: View {
+    let title: String
+    let icon: String
+    let content: Content
+    @Environment(\.colorScheme) private var colorScheme
+    
+    init(title: String, icon: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.icon = icon
+        self.content = content()
     }
     
-    private func saveChanges() {
-        // Validate thresholds
-        guard let lowValue = Double(lowThreshold),
-              let highValue = Double(highThreshold) else {
-            alertMessage = "Please enter valid numbers for thresholds"
-            showingAlert = true
-            return
-        }
-        
-        // Additional validation based on unit
-        if selectedUnit == "mmol" {
-            guard lowValue >= 2.0 && lowValue <= 20.0 &&
-                  highValue >= 2.0 && highValue <= 20.0 else {
-                alertMessage = "Thresholds must be between 2.0 and 20.0 mmol/L"
-                showingAlert = true
-                return
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.accentColor.opacity(0.1))
+                            .frame(width: 36, height: 36)
+                    )
+                
+                Text(title)
+                    .font(.headline)
             }
-        } else {
-            guard lowValue >= 40 && lowValue <= 400 &&
-                  highValue >= 40 && highValue <= 400 else {
-                alertMessage = "Thresholds must be between 40 and 400 mg/dL"
-                showingAlert = true
-                return
-            }
+            .padding(.horizontal, 4)
+            
+            content
         }
-        
-        guard highValue > lowValue else {
-            alertMessage = "High threshold must be greater than low threshold"
-            showingAlert = true
-            return
-        }
-        
-        // Save all settings
-        UserDefaults.standard.set(username, forKey: "username")
-        UserDefaults.standard.set(password, forKey: "password")
-        UserDefaults.standard.set(selectedUnit, forKey: "unit")
-        UserDefaults.standard.set(lowThreshold, forKey: "lowThreshold")
-        UserDefaults.standard.set(highThreshold, forKey: "highThreshold")
-        
-        // Notify user
-        alertMessage = "Settings saved successfully"
-        showingAlert = true
-    }
-    
-    private func logout() {
-        UserDefaults.standard.removeObject(forKey: "username")
-        UserDefaults.standard.removeObject(forKey: "password")
-        username = ""
-        password = ""
-        appState.isAuthenticated = false
-        alertMessage = "Logged out successfully"
-        showingAlert = true
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 #Preview {
     SettingsView()
         .environmentObject(AppState())
-} 
+}

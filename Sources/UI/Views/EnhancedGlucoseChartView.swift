@@ -208,25 +208,29 @@ struct EnhancedGlucoseChartView: View {
             // Background with threshold zones
             ChartBackgroundView(lowThreshold: displayThresholds.low, highThreshold: displayThresholds.high)
             
-            glucoseChart
+            // Main chart
+            mainChart
         }
     }
     
     // Break the chart into its own view property
-    private var glucoseChart: some View {
+    private var mainChart: some View {
         Chart {
             // Target range rectangle
-            RectangleMark(
-                xStart: .value("Start", readings.first?.timestamp ?? Date()),
-                xEnd: .value("End", readings.last?.timestamp ?? Date()),
-                yStart: .value("Low", displayThresholds.low),
-                yEnd: .value("High", displayThresholds.high)
-            )
-            .foregroundStyle(Color.green.opacity(0.1))
+            if !readings.isEmpty {
+                RectangleMark(
+                    xStart: .value("Start", readings.first?.timestamp ?? Date()),
+                    xEnd: .value("End", readings.last?.timestamp ?? Date()),
+                    yStart: .value("Low", displayThresholds.low),
+                    yEnd: .value("High", displayThresholds.high)
+                )
+                .foregroundStyle(Color.green.opacity(0.1))
+            }
             
-            // Main data
-            ForEach(readings) { reading in
-                if chartType == .line {
+            // Main data using line or bar charts
+            if chartType == .line {
+                // Line chart
+                ForEach(readings) { reading in
                     LineMark(
                         x: .value("Time", reading.timestamp),
                         y: .value("Glucose", reading.displayValue)
@@ -239,19 +243,45 @@ struct EnhancedGlucoseChartView: View {
                     }
                     .interpolationMethod(.catmullRom)
                     .symbolSize(30)
-                } else {
+                }
+            } else {
+                // Bar chart with proper baseline and value labels
+                let shouldShowAllLabels = readings.count < 15 // Only show all labels if we have fewer than 15 readings
+                
+                ForEach(readings.enumerated().map { ($0, $1) }, id: \.1.id) { index, reading in
                     BarMark(
                         x: .value("Time", reading.timestamp),
-                        y: .value("Glucose", reading.displayValue)
+                        yStart: .value("Baseline", 3), // Start from minimum of y-axis
+                        yEnd: .value("Glucose", reading.displayValue),
+                        width: .fixed(4) // Fixed width to prevent overlapping bars
                     )
                     .foregroundStyle(reading.rangeStatus.color.gradient)
                     .cornerRadius(4)
+                    .annotation(position: .top, alignment: .center, spacing: 0) {
+                        // Show label if we have few readings OR it's an important reading
+                        // (every 3rd reading, or high/low values)
+                        if shouldShowAllLabels || 
+                           index % 3 == 0 || 
+                           reading.isHigh || 
+                           reading.isLow {
+                            // Show a value label above each bar
+                            Text(String(format: "%.1f", reading.displayValue))
+                                .font(.system(size: 8.5)) // Slightly bigger font
+                                .foregroundColor(.white) // White text for better contrast
+                                .fontWeight(.bold)
+                                // Use colored background matching the reading status
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 1)
+                                .background(reading.rangeStatus.color.opacity(0.8)) // Use same color as the bar
+                                .cornerRadius(3)
+                        }
+                    }
                 }
             }
             
             // Comparison data (if enabled)
             if showComparison && selectedDate != nil && !comparisonReadings.isEmpty {
-                ForEach(comparisonReadings) { reading in
+                ForEach(comparisonReadings, id: \.id) { reading in
                     LineMark(
                         x: .value("Time", normalizeTimeOfDay(reading)),
                         y: .value("Comparison", reading.displayValue)
@@ -265,12 +295,11 @@ struct EnhancedGlucoseChartView: View {
                     }
                     .symbolSize(30)
                 }
-                .accessibilityLabel("Comparison data")
             }
             
             // Average data (if enabled)
             if showComparison && showAverage {
-                ForEach(averageReadings) { point in
+                ForEach(averageReadings, id: \.id) { point in
                     LineMark(
                         x: .value("Time", point.time),
                         y: .value("Average", point.value)
@@ -284,7 +313,6 @@ struct EnhancedGlucoseChartView: View {
                     }
                     .symbolSize(30)
                 }
-                .accessibilityLabel("Average glucose curve")
             }
             
             // Threshold lines
@@ -313,6 +341,7 @@ struct EnhancedGlucoseChartView: View {
                 if let date = value.as(Date.self) {
                     AxisValueLabel(formatTime(date))
                         .font(.caption)
+                        .foregroundStyle(Color.primary.opacity(0.8))
                 }
             }
         }
@@ -326,6 +355,7 @@ struct EnhancedGlucoseChartView: View {
                     if let reading = value.as(Double.self) {
                         Text(String(format: "%.0f", reading))
                             .font(.caption)
+                            .foregroundStyle(Color.primary.opacity(0.8))
                     }
                 }
             }

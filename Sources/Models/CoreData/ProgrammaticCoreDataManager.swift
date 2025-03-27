@@ -69,59 +69,89 @@ class ProgrammaticCoreDataManager {
     }
     
     lazy var persistentContainer: NSPersistentContainer = {
+        print("🗄️ Initializing CoreData persistent container...")
         let model = createManagedObjectModel()
         let container = NSPersistentContainer(name: "GlucoseData", managedObjectModel: model)
         
-        // Configure for in-memory storage initially
-        // We'll switch to disk-based if possible
-        let storeDescription = NSPersistentStoreDescription()
-        storeDescription.type = NSInMemoryStoreType
-        container.persistentStoreDescriptions = [storeDescription]
+        // Set up Application Support directory path
+        let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let storeURL = appSupportDir.appendingPathComponent("GlucoseData.sqlite")
         
-        container.loadPersistentStores { description, error in
+        print("📂 CoreData store location: \(storeURL.path)")
+        
+        // Create directory if it doesn't exist
+        if !FileManager.default.fileExists(atPath: appSupportDir.path) {
+            do {
+                try FileManager.default.createDirectory(at: appSupportDir, withIntermediateDirectories: true, attributes: nil)
+                print("📁 Created Application Support directory")
+            } catch {
+                print("❌ Failed to create directory: \(error.localizedDescription)")
+            }
+        }
+        
+        // Create a SQLite store description
+        let sqliteStoreDescription = NSPersistentStoreDescription(url: storeURL)
+        sqliteStoreDescription.type = NSSQLiteStoreType
+        sqliteStoreDescription.shouldMigrateStoreAutomatically = true
+        sqliteStoreDescription.shouldInferMappingModelAutomatically = true
+        
+        // Set the store description on the container
+        container.persistentStoreDescriptions = [sqliteStoreDescription]
+        
+        // Load the persistent store synchronously
+        container.loadPersistentStores { storeDescription, error in
             if let error = error {
-                print("Failed to load persistent store: \(error)")
-            } else {
-                print("Successfully loaded in-memory store")
+                print("❌ Failed to load persistent store: \(error.localizedDescription)")
                 
-                // After successful in-memory load, try to set up persistent store
-                self.setupPersistentStore(for: container)
+                if let nsError = error as NSError? {
+                    print("⚠️ Error details - domain: \(nsError.domain), code: \(nsError.code)")
+                    print("⚠️ User info: \(nsError.userInfo)")
+                }
+                
+                // If SQLite fails, try creating an in-memory store as fallback
+                print("⚠️ Setting up in-memory store as fallback")
+                let inMemoryDescription = NSPersistentStoreDescription()
+                inMemoryDescription.type = NSInMemoryStoreType
+                
+                // Remove the failed store
+                for store in container.persistentStoreCoordinator.persistentStores {
+                    try? container.persistentStoreCoordinator.remove(store)
+                }
+                
+                // Add and load the in-memory store
+                container.persistentStoreDescriptions = [inMemoryDescription]
+                container.loadPersistentStores { _, loadError in
+                    if let loadError = loadError {
+                        print("❌ Also failed to load in-memory store: \(loadError)")
+                    } else {
+                        print("✅ Successfully loaded in-memory store (data will not persist between app launches)")
+                    }
+                }
+            } else {
+                print("✅ Successfully loaded persistent SQLite store at \(storeURL.path)")
+                // Check if SQLite file exists now
+                if FileManager.default.fileExists(atPath: storeURL.path) {
+                    print("✅ SQLite file exists on disk")
+                    
+                    // Get file size
+                    do {
+                        let attributes = try FileManager.default.attributesOfItem(atPath: storeURL.path)
+                        if let size = attributes[FileAttributeKey.size] as? NSNumber {
+                            print("📊 SQLite file size: \(size.intValue / 1024) KB")
+                        }
+                    } catch {
+                        print("❌ Error getting file attributes: \(error)")
+                    }
+                } else {
+                    print("⚠️ SQLite file does not exist at expected location")
+                }
             }
         }
         
         return container
     }()
     
-    private func setupPersistentStore(for container: NSPersistentContainer) {
-        // Try to create a SQLite store
-        let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let storeURL = appSupportDir.appendingPathComponent("GlucoseData.sqlite")
-        
-        do {
-            // Create directory if needed
-            try FileManager.default.createDirectory(at: appSupportDir, withIntermediateDirectories: true)
-            
-            // Create store description
-            let description = NSPersistentStoreDescription(url: storeURL)
-            description.type = NSSQLiteStoreType
-            
-            // Load the store
-            try container.persistentStoreCoordinator.addPersistentStore(
-                ofType: NSSQLiteStoreType,
-                configurationName: nil,
-                at: storeURL,
-                options: [
-                    NSMigratePersistentStoresAutomaticallyOption: true,
-                    NSInferMappingModelAutomaticallyOption: true
-                ]
-            )
-            
-            print("Successfully set up persistent SQLite store at \(storeURL)")
-        } catch {
-            print("Failed to set up persistent store: \(error)")
-            print("Continuing with in-memory store")
-        }
-    }
+    // We now handle in-memory store setup directly in the persistentContainer initialization
     
     var viewContext: NSManagedObjectContext {
         return persistentContainer.viewContext
@@ -131,28 +161,114 @@ class ProgrammaticCoreDataManager {
     func saveContext() {
         let context = persistentContainer.viewContext
         if context.hasChanges {
+            print("💾 Saving changes to CoreData...")
             do {
                 try context.save()
+                print("✅ Changes saved successfully")
+                
+                // Verify persistence - check if SQLite file exists and has been updated
+                let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                let storeURL = appSupportDir.appendingPathComponent("GlucoseData.sqlite")
+                
+                if FileManager.default.fileExists(atPath: storeURL.path) {
+                    do {
+                        let attributes = try FileManager.default.attributesOfItem(atPath: storeURL.path)
+                        if let size = attributes[FileAttributeKey.size] as? NSNumber,
+                           let modDate = attributes[FileAttributeKey.modificationDate] as? Date {
+                            print("📊 SQLite file size: \(size.intValue / 1024) KB, Last modified: \(modDate)")
+                        }
+                    } catch {
+                        print("❌ Error checking file attributes: \(error)")
+                    }
+                }
             } catch {
                 let nsError = error as NSError
-                print("Unresolved error \(nsError), \(nsError.userInfo)")
+                print("❌ Failed to save changes: \(nsError), \(nsError.userInfo)")
             }
+        } else {
+            print("⚠️ No changes to save")
         }
     }
     
     // Save glucose readings to CoreData
     func saveGlucoseReadings(_ readings: [GlucoseReading]) {
+        guard !readings.isEmpty else {
+            print("⚠️ No readings to save")
+            return
+        }
+        
+        print("🔄 Saving \(readings.count) readings to CoreData...")
         let context = persistentContainer.viewContext
         
-        readings.forEach { reading in
-            // Check if this reading already exists to avoid duplicates
+        // DEBUG: Log the date range of readings being saved
+        if !readings.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            if let firstDate = readings.map({ $0.timestamp }).min(),
+               let lastDate = readings.map({ $0.timestamp }).max() {
+                print("📅 INCOMING DATA: Date range \(formatter.string(from: firstDate)) to \(formatter.string(from: lastDate))")
+            }
+        }
+        
+        // Start a background task
+        Task {
+            // Get all existing IDs in a single fetch to avoid multiple queries
             let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "GlucoseReadingEntity")
-            fetchRequest.predicate = NSPredicate(format: "id == %@", reading.id)
+            fetchRequest.propertiesToFetch = ["id"]
+            fetchRequest.resultType = .dictionaryResultType
+            
+            var existingIds = Set<String>()
             
             do {
-                let existingReadings = try context.fetch(fetchRequest)
-                if existingReadings.isEmpty {
-                    // Create new reading if not found
+                let results = try context.fetch(fetchRequest)
+                for case let result as [String: Any] in results {
+                    if let id = result["id"] as? String {
+                        existingIds.insert(id)
+                    }
+                }
+                print("📋 Found \(existingIds.count) existing readings in database")
+                
+                // Print time range of existing data (debug)
+                if !existingIds.isEmpty {
+                    let timeRangeRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "GlucoseReadingEntity")
+                    timeRangeRequest.propertiesToFetch = ["timestamp"]
+                    
+                    let timestampResults = try context.fetch(timeRangeRequest)
+                    var timestamps: [Date] = []
+                    
+                    for case let result as NSManagedObject in timestampResults {
+                        if let timestamp = result.value(forKey: "timestamp") as? Date {
+                            timestamps.append(timestamp)
+                        }
+                    }
+                    
+                    if let earliest = timestamps.min(), let latest = timestamps.max() {
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                        print("⏱️ Existing data range: \(formatter.string(from: earliest)) to \(formatter.string(from: latest))")
+                    }
+                }
+            } catch {
+                print("❌ Error fetching existing IDs: \(error)")
+                existingIds = [] // Continue with empty set if fetch fails
+            }
+            
+            // Batch processing to reduce memory pressure
+            var newReadingsCount = 0
+            let batchSize = 50
+            
+            for i in stride(from: 0, to: readings.count, by: batchSize) {
+                let batchEnd = min(i + batchSize, readings.count)
+                let batch = readings[i..<batchEnd]
+                
+                // Add new readings (those not in existingIds)
+                for reading in batch {
+                    // Skip if this reading already exists
+                    if existingIds.contains(reading.id) {
+                        continue
+                    }
+                    
+                    // Create a new entity for this reading
                     let entity = NSEntityDescription.insertNewObject(forEntityName: "GlucoseReadingEntity", into: context)
                     entity.setValue(reading.id, forKey: "id")
                     entity.setValue(reading.timestamp, forKey: "timestamp")
@@ -160,23 +276,127 @@ class ProgrammaticCoreDataManager {
                     entity.setValue(reading.unit, forKey: "unit")
                     entity.setValue(reading.isHigh, forKey: "isHigh")
                     entity.setValue(reading.isLow, forKey: "isLow")
+                    
+                    newReadingsCount += 1
+                    existingIds.insert(reading.id) // Track newly added IDs
                 }
-            } catch {
-                print("Error checking for existing reading: \(error)")
+                
+                // Save each batch to avoid memory issues with large datasets
+                if newReadingsCount > 0 && context.hasChanges {
+                    saveContext()
+                }
             }
+            
+            print("✅ Added \(newReadingsCount) new readings")
+            
+            // Perform final verification
+            verifyDataIntegrity()
         }
+    }
+    
+    // Helper method to verify data is correctly stored
+    private func verifyDataIntegrity() {
+        let context = persistentContainer.viewContext
         
-        saveContext()
+        // Count request
+        let countRequest = NSFetchRequest<NSNumber>(entityName: "GlucoseReadingEntity")
+        countRequest.resultType = .countResultType
+        
+        // Date range request
+        let rangeRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "GlucoseReadingEntity")
+        rangeRequest.sortDescriptors = [
+            NSSortDescriptor(key: "timestamp", ascending: true)
+        ]
+        
+        do {
+            // Get total count
+            let countResult = try context.fetch(countRequest)
+            let totalCount = countResult.first?.intValue ?? 0
+            
+            print("📊 Database now contains \(totalCount) readings total")
+            
+            // Get first and last reading to determine date range
+            let rangeResults = try context.fetch(rangeRequest)
+            
+            if let firstObj = rangeResults.first as? NSManagedObject,
+               let lastObj = rangeResults.last as? NSManagedObject,
+               let firstDate = firstObj.value(forKey: "timestamp") as? Date,
+               let lastDate = lastObj.value(forKey: "timestamp") as? Date {
+                
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                
+                let daysBetween = Calendar.current.dateComponents([.day], from: firstDate, to: lastDate).day ?? 0
+                
+                print("📅 Data spans \(daysBetween) days:")
+                print("   Earliest: \(formatter.string(from: firstDate))")
+                print("   Latest: \(formatter.string(from: lastDate))")
+                
+                // Count readings per day (for first few days)
+                let calendar = Calendar.current
+                var dayMap: [Date: Int] = [:]
+                
+                for case let obj as NSManagedObject in rangeResults {
+                    if let date = obj.value(forKey: "timestamp") as? Date {
+                        let day = calendar.startOfDay(for: date)
+                        dayMap[day, default: 0] += 1
+                    }
+                }
+                
+                print("📆 Readings by day (showing first 5):")
+                let sortedDays = dayMap.keys.sorted(by: >)
+                for day in sortedDays.prefix(5) {
+                    formatter.dateFormat = "yyyy-MM-dd"
+                    print("   \(formatter.string(from: day)): \(dayMap[day] ?? 0) readings")
+                }
+            }
+        } catch {
+            print("❌ Error verifying data integrity: \(error)")
+        }
     }
     
     // Fetch all glucose readings
     func fetchAllGlucoseReadings() -> [GlucoseReading] {
+        print("📚 Fetching all glucose readings from database...")
+        
         let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "GlucoseReadingEntity")
+        // Sort by timestamp descending (newest first)
         fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
         
+        // DEBUG: Add print for SQLite file
+        let fileManager = FileManager.default
+        let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let storeURL = appSupportDir.appendingPathComponent("GlucoseData.sqlite")
+        print("📂 CRITICAL DEBUG: Checking CoreData store at \(storeURL.path)")
+        
+        if fileManager.fileExists(atPath: storeURL.path) {
+            do {
+                let attributes = try fileManager.attributesOfItem(atPath: storeURL.path)
+                if let size = attributes[.size] as? NSNumber {
+                    let sizeKB = size.intValue / 1024
+                    print("📊 CRITICAL DEBUG: Database file exists! Size: \(sizeKB) KB")
+                    if let modDate = attributes[.modificationDate] as? Date {
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                        print("📅 CRITICAL DEBUG: Last modified: \(formatter.string(from: modDate))")
+                    }
+                }
+            } catch {
+                print("❌ CRITICAL DEBUG: Error checking file: \(error)")
+            }
+        } else {
+            print("❌ CRITICAL DEBUG: CoreData SQLite file DOES NOT EXIST!")
+        }
+        
         do {
+            // Execute fetch request
+            let startTime = CFAbsoluteTimeGetCurrent()
             let result = try viewContext.fetch(fetchRequest)
-            return result.compactMap { object -> GlucoseReading? in
+            let fetchTime = CFAbsoluteTimeGetCurrent() - startTime
+            print("⏱️ Fetch completed in \(String(format: "%.3f", fetchTime)) seconds")
+            
+            // Map CoreData objects to model objects
+            let readings = result.compactMap { object -> GlucoseReading? in
                 guard let object = object as? NSManagedObject else { return nil }
                 
                 return GlucoseReading(
@@ -188,8 +408,57 @@ class ProgrammaticCoreDataManager {
                     isLow: object.value(forKey: "isLow") as? Bool ?? false
                 )
             }
+            
+            print("📊 Fetched \(readings.count) readings from database")
+            
+            // Analyze date range
+            if !readings.isEmpty {
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                
+                if let earliest = readings.map({ $0.timestamp }).min(),
+                   let latest = readings.map({ $0.timestamp }).max() {
+                    let calendar = Calendar.current
+                    let days = calendar.dateComponents([.day], from: earliest, to: latest).day ?? 0
+                    
+                    print("📅 Date range: \(dateFormatter.string(from: earliest)) to \(dateFormatter.string(from: latest))")
+                    print("📆 Spanning \(days) days")
+                    
+                    // Check unique days
+                    let uniqueDays = Set(readings.map { calendar.startOfDay(for: $0.timestamp) })
+                    print("🗓️ Covering \(uniqueDays.count) unique days")
+                    
+                    // Count readings per day (for the most recent 5 days)
+                    var dayMap: [Date: Int] = [:]
+                    for reading in readings {
+                        let day = calendar.startOfDay(for: reading.timestamp)
+                        dayMap[day, default: 0] += 1
+                    }
+                    
+                    print("📊 Readings by day (most recent 5):")
+                    let sortedDays = dayMap.keys.sorted(by: >)
+                    for day in sortedDays.prefix(5) {
+                        dateFormatter.dateFormat = "yyyy-MM-dd"
+                        print("   \(dateFormatter.string(from: day)): \(dayMap[day] ?? 0) readings")
+                    }
+                    
+                    // Print sample of readings
+                    if readings.count > 0 {
+                        let sample = min(5, readings.count)
+                        print("🔍 Sample of first \(sample) readings:")
+                        for i in 0..<sample {
+                            let reading = readings[i]
+                            print("  - \(dateFormatter.string(from: reading.timestamp)): \(reading.value) \(reading.unit)")
+                        }
+                    }
+                }
+            } else {
+                print("⚠️ Warning: No readings found in database")
+            }
+            
+            return readings
         } catch {
-            print("Error fetching readings: \(error)")
+            print("❌ Error fetching readings: \(error)")
             return []
         }
     }
@@ -197,12 +466,18 @@ class ProgrammaticCoreDataManager {
     // Fetch readings within a date range
     func fetchGlucoseReadings(from startDate: Date, to endDate: Date) -> [GlucoseReading] {
         let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "GlucoseReadingEntity")
+        
+        // Create a predicate that includes all readings in the date range
         fetchRequest.predicate = NSPredicate(format: "timestamp >= %@ AND timestamp <= %@", startDate as NSDate, endDate as NSDate)
         fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
         
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        print("🔍 Fetching readings from \(dateFormatter.string(from: startDate)) to \(dateFormatter.string(from: endDate))")
+        
         do {
             let result = try viewContext.fetch(fetchRequest)
-            return result.compactMap { object -> GlucoseReading? in
+            let readings = result.compactMap { object -> GlucoseReading? in
                 guard let object = object as? NSManagedObject else { return nil }
                 
                 return GlucoseReading(
@@ -214,8 +489,38 @@ class ProgrammaticCoreDataManager {
                     isLow: object.value(forKey: "isLow") as? Bool ?? false
                 )
             }
+            
+            print("✅ Found \(readings.count) readings in date range")
+            
+            // Print diagnostic info if there are readings
+            if !readings.isEmpty {
+                // Date range of actual results
+                if let earliest = readings.map({ $0.timestamp }).min(),
+                   let latest = readings.map({ $0.timestamp }).max() {
+                    print("📅 Results span: \(dateFormatter.string(from: earliest)) to \(dateFormatter.string(from: latest))")
+                }
+                
+                // Show count by day
+                let calendar = Calendar.current
+                var dayMap: [Date: Int] = [:]
+                for reading in readings {
+                    let day = calendar.startOfDay(for: reading.timestamp)
+                    dayMap[day, default: 0] += 1
+                }
+                
+                if !dayMap.isEmpty {
+                    print("📊 Readings by day:")
+                    let sortedDays = dayMap.keys.sorted()
+                    for day in sortedDays {
+                        dateFormatter.dateFormat = "yyyy-MM-dd"
+                        print("   \(dateFormatter.string(from: day)): \(dayMap[day] ?? 0) readings")
+                    }
+                }
+            }
+            
+            return readings
         } catch {
-            print("Error fetching readings: \(error)")
+            print("❌ Error fetching readings by date range: \(error)")
             return []
         }
     }

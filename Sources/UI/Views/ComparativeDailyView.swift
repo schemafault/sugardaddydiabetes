@@ -4,15 +4,27 @@ import Charts
 struct ComparativeDailyView: View {
     @EnvironmentObject private var appState: AppState
     @State private var selectedDates: Set<Date> = []
-    @State private var isEnabled: Bool = false
+    @State private var isEnabled: Bool = true // Default to enabled for better initial UX
     
     private var allDays: [Date] {
         // Get all available unique days from history
         let calendar = Calendar.current
-        return appState.glucoseHistory
+        let days = appState.glucoseHistory
             .map { calendar.startOfDay(for: $0.timestamp) }
             .reduce(into: Set<Date>()) { $0.insert($1) }
             .sorted(by: >)
+        
+        // Pre-select the two most recent days if no selection exists
+        if selectedDates.isEmpty && days.count >= 2 {
+            DispatchQueue.main.async {
+                selectedDates.insert(days[0])
+                if days.count > 1 {
+                    selectedDates.insert(days[1])
+                }
+            }
+        }
+        
+        return days
     }
     
     private var dailyReadings: [Date: [GlucoseReading]] {
@@ -33,78 +45,36 @@ struct ComparativeDailyView: View {
         
         // Create a reference date (today) with the same time
         return calendar.date(bySettingHour: components.hour ?? 0,
-                              minute: components.minute ?? 0,
-                              second: components.second ?? 0,
-                              of: Date()) ?? Date()
+                             minute: components.minute ?? 0,
+                             second: components.second ?? 0,
+                             of: Date()) ?? Date()
     }
     
     var body: some View {
         VStack(spacing: 16) {
             HStack {
-                Text("Compare Days")
+                Text("Comparative Daily Analysis")
                     .font(.headline)
                 
                 Spacer()
                 
-                Toggle("Enable", isOn: $isEnabled)
-                    .labelsHidden()
+                // Simplified toggle to hide/show selections
+                Button {
+                    isEnabled.toggle()
+                } label: {
+                    Label(isEnabled ? "Hide Controls" : "Show Controls", 
+                          systemImage: isEnabled ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
             .padding(.horizontal)
             
-            if isEnabled {
-                if !dailyReadings.isEmpty {
-                    VStack(spacing: 12) {
-                        // The chart showing multiple days
-                        Chart {
-                            ForEach(Array(selectedDates), id: \.self) { day in
-                                if let readings = dailyReadings[day], !readings.isEmpty {
-                                    ForEach(readings) { reading in
-                                        LineMark(
-                                            x: .value("Time", normalizeTimeOfDay(reading)),
-                                            y: .value("Glucose", reading.displayValue)
-                                        )
-                                        .foregroundStyle(by: .value("Day", formatDayLabel(day)))
-                                    }
-                                }
-                            }
-                            
-                            // Add threshold lines
-                            let lowThreshold = getThreshold("lowThreshold")
-                            let highThreshold = getThreshold("highThreshold")
-                            
-                            RuleMark(y: .value("Low", lowThreshold))
-                                .foregroundStyle(.yellow.opacity(0.5))
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
-                                .annotation(position: .leading) {
-                                    Text("Low")
-                                        .font(.caption)
-                                        .foregroundColor(.yellow)
-                                }
-                            
-                            RuleMark(y: .value("High", highThreshold))
-                                .foregroundStyle(.red.opacity(0.5))
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
-                                .annotation(position: .leading) {
-                                    Text("High")
-                                        .font(.caption)
-                                        .foregroundColor(.red)
-                                }
-                        }
-                        .chartXAxis {
-                            AxisMarks(values: .stride(by: .hour, count: 4)) { value in
-                                if let date = value.as(Date.self) {
-                                    let hour = Calendar.current.component(.hour, from: date)
-                                    AxisValueLabel {
-                                        Text("\(hour):00")
-                                    }
-                                }
-                            }
-                        }
-                        .chartYScale(domain: getYAxisRange())
-                        .frame(height: 250)
-                        .padding()
-                        
-                        // Day selection
+            if !dailyReadings.isEmpty {
+                VStack(spacing: 12) {
+                    // Day selection section if controls are enabled
+                    if isEnabled {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack {
                                 ForEach(allDays.prefix(7), id: \.self) { day in
@@ -119,12 +89,64 @@ struct ComparativeDailyView: View {
                             }
                             .padding(.horizontal)
                         }
+                        .padding(.bottom, 8)
                     }
-                } else {
-                    Text("Insufficient data to compare days")
-                        .foregroundColor(.secondary)
-                        .padding()
+                    
+                    // The chart showing multiple days
+                    Chart {
+                        // Day lines
+                        ForEach(Array(selectedDates), id: \.self) { day in
+                            if let readings = dailyReadings[day], !readings.isEmpty {
+                                ForEach(readings) { reading in
+                                    LineMark(
+                                        x: .value("Time", normalizeTimeOfDay(reading)),
+                                        y: .value("Glucose", reading.displayValue)
+                                    )
+                                    .foregroundStyle(by: .value("Day", formatDayLabel(day)))
+                                }
+                            }
+                        }
+                        
+                        // Add threshold lines
+                        let lowThreshold = getThreshold("lowThreshold")
+                        let highThreshold = getThreshold("highThreshold")
+                        
+                        RuleMark(y: .value("Low", lowThreshold))
+                            .foregroundStyle(.yellow.opacity(0.5))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
+                            .annotation(position: .leading) {
+                                Text("Low")
+                                    .font(.caption)
+                                    .foregroundColor(.yellow)
+                            }
+                        
+                        RuleMark(y: .value("High", highThreshold))
+                            .foregroundStyle(.red.opacity(0.5))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
+                            .annotation(position: .leading) {
+                                Text("High")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                    }
+                    .chartXAxis {
+                        AxisMarks(values: .stride(by: .hour, count: 4)) { value in
+                            if let date = value.as(Date.self) {
+                                let hour = Calendar.current.component(.hour, from: date)
+                                AxisValueLabel {
+                                    Text("\(hour):00")
+                                }
+                            }
+                        }
+                    }
+                    .chartYScale(domain: getYAxisRange())
+                    .frame(height: 250)
+                    .padding()
                 }
+            } else {
+                Text("Insufficient data to compare days")
+                    .foregroundColor(.secondary)
+                    .padding()
             }
         }
     }
@@ -224,4 +246,4 @@ struct DaySelectionButton: View {
 #Preview {
     ComparativeDailyView()
         .environmentObject(AppState())
-} 
+}
