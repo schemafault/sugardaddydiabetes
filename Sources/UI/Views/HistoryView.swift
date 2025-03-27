@@ -9,7 +9,8 @@ struct HistoryView: View {
             if !appState.glucoseHistory.isEmpty {
                 ScrollView {
                     VStack(spacing: 16) {
-                        GlucoseChartView(readings: appState.glucoseHistory)
+                        // Replace with enhanced chart that has built-in comparison
+                        EnhancedGlucoseChartView(readings: appState.glucoseHistory)
                             .frame(minHeight: 300)
                             .padding()
                         

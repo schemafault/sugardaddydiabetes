@@ -68,7 +68,7 @@ struct DashboardView: View {
                 }
                 
                 if !appState.glucoseHistory.isEmpty {
-                    GlucoseChartView(readings: appState.glucoseHistory)
+                    EnhancedGlucoseChartView(readings: appState.glucoseHistory)
                         .frame(minHeight: 300)
                         .padding()
                 }
