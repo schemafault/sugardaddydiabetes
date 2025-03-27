@@ -1,6 +1,7 @@
 import Foundation
+import Security // Required for keychain access
 
-enum LibreViewError: LocalizedError {
+enum LibreViewError: LocalizedError, Equatable {
     case authenticationFailed
     case invalidCredentials
     case networkError
@@ -35,7 +36,7 @@ actor LibreViewService {
     private var tokenExpiry: Date?
     private let tokenLifetime: TimeInterval = 50 * 60 // 50 minutes
     
-    // A function to safely get credentials from UserDefaults
+    // A function to safely get credentials - using UserDefaults for now
     private func getCredentials() throws -> (username: String, password: String) {
         guard let username = UserDefaults.standard.string(forKey: "username"),
               !username.isEmpty,
@@ -43,17 +44,22 @@ actor LibreViewService {
               !password.isEmpty else {
             throw LibreViewError.noCredentials
         }
+        
         return (username, password)
     }
     
     func checkAuthentication() async throws -> Bool {
         do {
             let credentials = try getCredentials()
+            print("🔍 Checking authentication with username: \(credentials.username)")
             _ = try await authenticate(username: credentials.username, password: credentials.password)
+            print("✅ Authentication successful")
             return true
         } catch let error as LibreViewError {
+            print("⚠️ LibreView auth error: \(error.localizedDescription)")
             throw error
         } catch {
+            print("❌ Unknown error during authentication: \(error.localizedDescription)")
             throw LibreViewError.unknown
         }
     }

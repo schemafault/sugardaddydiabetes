@@ -1,15 +1,35 @@
 import SwiftUI
+import Security // Required for working with the keychain
+
+// Debug extension to print current value of a UserDefaults key
+extension UserDefaults {
+    // The correct bundle ID for the app
+    static let appBundleID = "com.magiworks.diabetesmonitor"
+    
+    static func debugValue(forKey key: String) {
+        let standardValue = UserDefaults.standard.string(forKey: key)
+        print("DEBUG UserDefaults.standard[\(key)] = \(standardValue ?? "nil")")
+        
+        // Also check app-specific domain
+        let appDefaults = UserDefaults(suiteName: appBundleID)
+        let appValue = appDefaults?.string(forKey: key)
+        print("DEBUG UserDefaults[\(appBundleID)][\(key)] = \(appValue ?? "nil")")
+    }
+}
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
     
+    // Store credentials in UserDefaults for now
     @AppStorage("username") private var username: String = ""
     @AppStorage("password") private var password: String = ""
+    
     @AppStorage("unit") private var unit: String = "mg/dL"
     @AppStorage("lowThreshold") private var lowThreshold: String = "70"
     @AppStorage("highThreshold") private var highThreshold: String = "180"
     @AppStorage("updateInterval") private var updateInterval: Int = 15
+    @AppStorage("dataGranularity") private var dataGranularity: Int = 0 // 0: All readings, 1: Per minute, 5: Per 5 minutes, etc.
     
     @State private var showingDeletionConfirmation = false
     @State private var isEditingAccount = false
@@ -21,6 +41,7 @@ struct SettingsView: View {
     @State private var loginErrorMessage = ""
     
     let availableIntervals = [5, 10, 15, 30, 60]
+    let availableGranularities = [0, 1, 5, 15, 30]
     
     var body: some View {
         ScrollView {
@@ -29,6 +50,7 @@ struct SettingsView: View {
                 unitsSection
                 thresholdsSection
                 updateIntervalSection
+                dataGranularitySection
                 dataManagementSection
                 
                 Spacer()
@@ -52,7 +74,7 @@ struct SettingsView: View {
         } message: {
             Text("This will permanently delete all your stored glucose readings. This action cannot be undone.")
         }
-    }
+        }
     
     private var accountSection: some View {
         SettingsSection(title: "LibreView Account", icon: "person.fill") {
@@ -213,6 +235,39 @@ struct SettingsView: View {
         }
     }
     
+    private var dataGranularitySection: some View {
+        SettingsSection(title: "Data Granularity", icon: "chart.bar.xaxis") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Choose how readings are grouped:")
+                    .font(.subheadline)
+                
+                Picker("Data Granularity", selection: $dataGranularity) {
+                    Text("All readings").tag(0)
+                    Text("Average per minute").tag(1)
+                    Text("Average per 5 minutes").tag(5)
+                    Text("Average per 15 minutes").tag(15)
+                    Text("Average per 30 minutes").tag(30)
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                .onChange(of: dataGranularity) { oldValue, newValue in
+                    // Reload data with new granularity
+                    print("Granularity changed from \(oldValue) to \(newValue)")
+                    Task {
+                        await appState.reloadWithCurrentGranularity()
+                    }
+                }
+                
+                Text("Higher granularity reduces data points and improves performance.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(Material.thin)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+    
     private var dataManagementSection: some View {
         SettingsSection(title: "Data Management", icon: "externaldrive") {
             VStack(alignment: .leading, spacing: 10) {
@@ -296,6 +351,11 @@ struct SettingsView: View {
         isSaving = true
         
         Task {
+            // Debug current values
+            print("Before save - Checking values in UserDefaults:")
+            UserDefaults.debugValue(forKey: "username")
+            UserDefaults.debugValue(forKey: "password")
+            
             // Attempt to verify credentials before saving
             let result = await appState.verifyCredentials(username: newUsername, password: newPassword)
             
@@ -303,8 +363,18 @@ struct SettingsView: View {
                 isSaving = false
                 
                 if result.success {
+                    // IMPORTANT: Save both username and password to UserDefaults
+                    UserDefaults.standard.set(newUsername, forKey: "username")
+                    UserDefaults.standard.set(newPassword, forKey: "password")
+                    // Then update the @AppStorage properties which should reflect the changes
                     username = newUsername
                     password = newPassword
+                    
+                    // Verify that values were properly saved
+                    print("After save - Verifying values in UserDefaults:")
+                    UserDefaults.debugValue(forKey: "username")
+                    UserDefaults.debugValue(forKey: "password")
+                    
                     isEditingAccount = false
                     appState.isAuthenticated = true
                 } else {

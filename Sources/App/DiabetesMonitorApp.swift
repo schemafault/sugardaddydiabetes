@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CoreData
+import Security // Required for keychain access
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var appState: AppState?
@@ -278,8 +279,10 @@ class LoginWindowController: NSWindowController, NSWindowDelegate {
     }
     
     func windowWillClose(_ notification: Notification) {
-        // Quit if onboarding is closed
-        NSApplication.shared.terminate(nil)
+        // Do nothing when window closes - only terminate if this is initial setup
+        if UserDefaults.standard.string(forKey: "username") == nil {
+            NSApplication.shared.terminate(nil)
+        }
     }
 }
 
@@ -300,15 +303,37 @@ struct DiabetesMonitorApp: App {
                     // Set appState in AppDelegate
                     appDelegate.appState = appState
                     
-                    let hasCredentials = UserDefaults.standard.string(forKey: "username") != nil &&
-                                         UserDefaults.standard.string(forKey: "password") != nil
+                    // Debug what's in the defaults
+                    let username = UserDefaults.standard.string(forKey: "username")
+                    let password = UserDefaults.standard.string(forKey: "password")
+                    print("DEBUG UserDefaults - username: \(username != nil ? "found" : "missing"), password: \(password != nil ? "found" : "missing")")
+                    
+                    let hasCredentials = username != nil && password != nil
+                    
+                    print("🔐 Checking for existing credentials: \(hasCredentials ? "Found" : "Not found")")
                     
                     // Configure NSWindow for better text field behavior
                     configureWindows()
                     
-                    // Show native login window if needed
+                    // Show login window ONLY if there are no credentials
                     if !hasCredentials {
+                        print("📱 No credentials found - showing login window")
                         showNativeLoginWindow()
+                    } else {
+                        print("🔑 Using existing credentials - skipping login screen")
+                        
+                        // If credentials exist, fetch data in background but don't show login on failure
+                        // This provides a better experience - user won't be interrupted with login screens
+                        Task {
+                            // Try to fetch data using stored credentials
+                            do {
+                                await appState.fetchLatestReadings()
+                            } catch {
+                                print("⚠️ Fetch attempt with existing credentials failed: \(error)")
+                                // We don't show the login window here - that would be disruptive
+                                // Instead, the error will be shown in the app and user can manually fix credentials
+                            }
+                        }
                     }
                 }
         }
@@ -346,6 +371,15 @@ struct DiabetesMonitorApp: App {
     }
     
     private func showNativeLoginWindow() {
+        print("🪟 Creating and showing login window")
+        
+        // First, ensure we don't already have a login window showing
+        if loginWindowController != nil {
+            print("🪟 Login window already exists, bringing to front")
+            loginWindowController?.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        
         // Create and show the login window
         let windowController = LoginWindowController()
         
@@ -354,9 +388,18 @@ struct DiabetesMonitorApp: App {
             // Test credentials
             Task {
                 do {
-                    // Temporarily set the credentials
+                    // Directly save credentials to UserDefaults
+                    print("Saving credentials to UserDefaults...")
                     UserDefaults.standard.set(username, forKey: "username")
                     UserDefaults.standard.set(password, forKey: "password")
+                    
+                    // Debug what was saved
+                    let savedUsername = UserDefaults.standard.string(forKey: "username")
+                    let savedPassword = UserDefaults.standard.string(forKey: "password")
+                    print("Saved username: \(savedUsername != nil ? "YES" : "NO"), Saved password: \(savedPassword != nil ? "YES" : "NO")")
+                    
+                    // Force UserDefaults to synchronize to ensure values are saved immediately
+                    UserDefaults.standard.synchronize()
                     
                     // Create a service to test the credentials
                     let service = LibreViewService()
@@ -368,7 +411,7 @@ struct DiabetesMonitorApp: App {
                             windowController.close()
                             loginWindowController = nil
                         } else {
-                            // If not valid, show error
+                            // If not valid, show error and clear credentials
                             UserDefaults.standard.removeObject(forKey: "username")
                             UserDefaults.standard.removeObject(forKey: "password")
                             windowController.showError("Invalid username or password")
@@ -376,7 +419,7 @@ struct DiabetesMonitorApp: App {
                     }
                 } catch {
                     await MainActor.run {
-                        // If error, show error
+                        // If error, show error and clear credentials
                         UserDefaults.standard.removeObject(forKey: "username")
                         UserDefaults.standard.removeObject(forKey: "password")
                         windowController.showError("Error: \(error.localizedDescription)")
@@ -610,6 +653,111 @@ class AppState: ObservableObject {
         print("Cleared data from memory - all API data is still in CoreData database")
     }
     
+    // Method to reload data with current granularity setting
+    func reloadWithCurrentGranularity() async {
+        print("🔄 Reloading data with current granularity setting...")
+        
+        // Fetch all readings from CoreData
+        let allReadings = coreDataManager.fetchAllGlucoseReadings()
+        
+        // Apply current granularity
+        let granularityReadings = applyGranularity(to: allReadings)
+        
+        // Update the UI
+        await MainActor.run {
+            self.glucoseHistory = granularityReadings
+            if !granularityReadings.isEmpty {
+                self.currentGlucoseReading = granularityReadings.first
+            }
+        }
+        
+        print("✅ Reloaded \(granularityReadings.count) readings with granularity")
+    }
+    
+    // Apply data granularity to readings
+    private func applyGranularity(to readings: [GlucoseReading]) -> [GlucoseReading] {
+        let granularity = UserDefaults.standard.integer(forKey: "dataGranularity")
+        
+        // If granularity is 0 (all readings) or only a single reading, return as is
+        if granularity == 0 || readings.count <= 1 {
+            return readings
+        }
+        
+        print("🧪 Applying granularity of \(granularity) minute(s) to \(readings.count) readings")
+        
+        let calendar = Calendar.current
+        var buckets: [String: [GlucoseReading]] = [:]
+        
+        // Group readings into time buckets based on granularity
+        for reading in readings {
+            // Create a time bucket key based on the granularity
+            let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: reading.timestamp)
+            let minuteBucket = (components.minute ?? 0) / granularity * granularity
+            
+            // Create a unique key for this time bucket
+            let bucketKey = String(format: "%04d-%02d-%02d %02d:%02d", 
+                                   components.year ?? 0, 
+                                   components.month ?? 0, 
+                                   components.day ?? 0,
+                                   components.hour ?? 0,
+                                   minuteBucket)
+            
+            // Add reading to the appropriate bucket
+            if buckets[bucketKey] == nil {
+                buckets[bucketKey] = []
+            }
+            buckets[bucketKey]?.append(reading)
+        }
+        
+        // For each bucket, compute the average reading
+        var averagedReadings: [GlucoseReading] = []
+        
+        for (bucketKey, bucketReadings) in buckets {
+            // If only one reading in bucket, use it directly
+            if bucketReadings.count == 1 {
+                averagedReadings.append(bucketReadings[0])
+                continue
+            }
+            
+            // Calculate average glucose value
+            let totalValue = bucketReadings.reduce(0.0) { $0 + $1.value }
+            let avgValue = totalValue / Double(bucketReadings.count)
+            
+            // Use middle timestamp of the bucket as representative timestamp
+            let sortedTimestamps = bucketReadings.map { $0.timestamp }.sorted()
+            let midTimestamp = sortedTimestamps[sortedTimestamps.count / 2]
+            
+            // Determine if readings are high or low based on majority
+            let isHigh = bucketReadings.filter { $0.isHigh }.count > bucketReadings.count / 2
+            let isLow = bucketReadings.filter { $0.isLow }.count > bucketReadings.count / 2
+            
+            // Use consistent unit from original readings
+            let unit = bucketReadings[0].unit
+            
+            // Create a unique ID for this averaged reading
+            let id = "avg-\(bucketKey)-\(UUID().uuidString)"
+            
+            // Create new averaged reading
+            let avgReading = GlucoseReading(
+                id: id,
+                timestamp: midTimestamp,
+                value: avgValue,
+                unit: unit,
+                isHigh: isHigh,
+                isLow: isLow
+            )
+            
+            averagedReadings.append(avgReading)
+        }
+        
+        // Sort by timestamp (newest first - consistent with the rest of app)
+        let sortedReadings = averagedReadings.sorted { $0.timestamp > $1.timestamp }
+        
+        print("🧪 Reduced to \(sortedReadings.count) averaged readings with granularity of \(granularity) minute(s)")
+        
+        return sortedReadings
+    }
+    
     // Refactor verifyCredentials to return a result with success/message
     struct CredentialResult {
         let success: Bool
@@ -758,9 +906,12 @@ class AppState: ObservableObject {
                 enhancedReadings.append(updatedReading)
             }
             
-            self.glucoseHistory = enhancedReadings
-            self.currentGlucoseReading = enhancedReadings.first
-            print("📂 Loaded \(enhancedReadings.count) glucose readings with calculated trends")
+            // Apply granularity to reduce number of data points if configured
+            let granularityReadings = applyGranularity(to: enhancedReadings)
+            
+            self.glucoseHistory = granularityReadings
+            self.currentGlucoseReading = granularityReadings.first
+            print("📂 Loaded \(granularityReadings.count) glucose readings with calculated trends and applied granularity")
         }
     }
     
@@ -889,8 +1040,13 @@ class AppState: ObservableObject {
             let allReadings = coreDataManager.fetchAllGlucoseReadings()
             print("⚠️ CRITICAL: Loaded \(allReadings.count) total readings from CoreData after saving new data")
             
-            self.glucoseHistory = allReadings
-            self.currentGlucoseReading = allReadings.first
+            // Apply granularity setting to reduce data points if configured
+            let granularityReadings = applyGranularity(to: allReadings)
+            
+            self.glucoseHistory = granularityReadings
+            self.currentGlucoseReading = granularityReadings.first
+            
+            print("📊 Applied granularity: Reduced from \(allReadings.count) to \(granularityReadings.count) readings")
             
             print("📱 Updated readings with calculated trends")
             

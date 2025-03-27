@@ -407,34 +407,78 @@ struct DayDetailView: View {
     let date: Date
     private let calendar = Calendar.current
     
-    // Get readings for the selected day
+    // Initialize with state for caching metrics to improve performance
+    @State private var cachedReadings: [GlucoseReading] = []
+    @State private var cachedTimeInRange: (inRange: Double, high: Double, low: Double) = (0, 0, 0)
+    @State private var cachedAverage: Double = 0.0
+    @State private var cachedVariability: String = "N/A"
+    @State private var metricsCalculated = false
+    
+    // Get readings for the selected day - only calculated once
     private var dayReadings: [GlucoseReading] {
+        if !cachedReadings.isEmpty {
+            return cachedReadings
+        }
+        
         let startOfDay = calendar.startOfDay(for: date)
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
         
-        return appState.glucoseHistory
+        let readings = appState.glucoseHistory
             .filter { $0.timestamp >= startOfDay && $0.timestamp < endOfDay }
             .sorted { $0.timestamp < $1.timestamp }
+        
+        // This isn't truly reactive, but for this view we only need to calculate once
+        // at initialization since the data won't change during the popover's lifetime
+        DispatchQueue.main.async {
+            self.cachedReadings = readings
+            self.calculateMetrics()
+        }
+        
+        return readings
     }
     
-    // Calculate time-in-range metrics
+    // Calculate all metrics at once to avoid redundant calculations
+    private func calculateMetrics() {
+        // Calculate time-in-range metrics
+        let totalCount = Double(cachedReadings.count)
+        if totalCount > 0 {
+            let inRange = Double(cachedReadings.filter { $0.isInRange }.count) / totalCount * 100
+            let high = Double(cachedReadings.filter { $0.rangeStatus == .high }.count) / totalCount * 100
+            let low = Double(cachedReadings.filter { $0.rangeStatus == .low }.count) / totalCount * 100
+            cachedTimeInRange = (inRange, high, low)
+            
+            // Calculate average
+            let sum = cachedReadings.reduce(0.0) { $0 + $1.displayValue }
+            cachedAverage = sum / totalCount
+            
+            // Calculate variability (only if we have enough readings)
+            if cachedReadings.count > 2 {
+                let values = cachedReadings.map { $0.displayValue }
+                let mean = values.reduce(0, +) / Double(values.count)
+                let sumOfSquaredDifferences = values.reduce(0) { $0 + pow($1 - mean, 2) }
+                let standardDeviation = sqrt(sumOfSquaredDifferences / Double(values.count))
+                let coefficientOfVariation = (standardDeviation / mean) * 100
+                cachedVariability = String(format: "%.1f%%", coefficientOfVariation)
+            }
+        }
+        
+        metricsCalculated = true
+    }
+    
+    // Use cached metrics for performance
     private var timeInRange: (inRange: Double, high: Double, low: Double) {
-        let totalCount = Double(dayReadings.count)
-        guard totalCount > 0 else { return (0, 0, 0) }
-        
-        let inRange = Double(dayReadings.filter { $0.isInRange }.count) / totalCount * 100
-        let high = Double(dayReadings.filter { $0.rangeStatus == .high }.count) / totalCount * 100
-        let low = Double(dayReadings.filter { $0.rangeStatus == .low }.count) / totalCount * 100
-        
-        return (inRange, high, low)
+        if !metricsCalculated && !dayReadings.isEmpty {
+            calculateMetrics()
+        }
+        return cachedTimeInRange
     }
     
-    // Calculate average glucose for the day
+    // Use cached average for performance
     private var averageGlucose: Double {
-        guard !dayReadings.isEmpty else { return 0.0 }
-        
-        let sum = dayReadings.reduce(0.0) { $0 + $1.displayValue }
-        return sum / Double(dayReadings.count)
+        if !metricsCalculated && !dayReadings.isEmpty {
+            calculateMetrics()
+        }
+        return cachedAverage
     }
     
     var body: some View {
@@ -464,7 +508,7 @@ struct DayDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding()
                 } else {
-                    // Data available view
+                    // Data available view - Optimized to remove the performance-heavy readings list
                     VStack(spacing: 20) {
                         // Day summary
                         daySummaryView
@@ -472,8 +516,23 @@ struct DayDetailView: View {
                         // Chart of readings for the day
                         dayChartView
                         
-                        // List of readings
-                        readingsListView
+                        // Note about number of readings instead of full list
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Summary")
+                                .font(.headline)
+                            
+                            HStack {
+                                Image(systemName: "list.bullet")
+                                    .foregroundColor(.secondary)
+                                Text("\(dayReadings.count) readings recorded on this day")
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Material.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
                     .padding()
                 }
@@ -589,7 +648,7 @@ struct DayDetailView: View {
         }
     }
     
-    // Chart view showing glucose throughout the day
+    // Chart view showing glucose throughout the day - optimized with drawingGroup
     private var dayChartView: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Glucose Readings")
@@ -625,6 +684,8 @@ struct DayDetailView: View {
             }
             .frame(height: 200)
             .chartYScale(domain: 3...27)
+            // Use drawingGroup for Metal-accelerated rendering
+            .drawingGroup()
         }
         .padding()
         .background(Material.ultraThinMaterial)
@@ -711,17 +772,12 @@ struct DayDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
     
-    // Helper to calculate glucose variability
+    // Helper to get cached glucose variability
     private func calculateVariability() -> String {
-        guard dayReadings.count > 2 else { return "N/A" }
-        
-        let values = dayReadings.map { $0.displayValue }
-        let mean = values.reduce(0, +) / Double(values.count)
-        let sumOfSquaredDifferences = values.reduce(0) { $0 + pow($1 - mean, 2) }
-        let standardDeviation = sqrt(sumOfSquaredDifferences / Double(values.count))
-        let coefficientOfVariation = (standardDeviation / mean) * 100
-        
-        return String(format: "%.1f%%", coefficientOfVariation)
+        if !metricsCalculated && !dayReadings.isEmpty {
+            calculateMetrics()
+        }
+        return cachedVariability
     }
     
     // Helper to format date
