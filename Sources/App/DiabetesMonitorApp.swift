@@ -321,9 +321,26 @@ struct DiabetesMonitorApp: App {
             CommandGroup(replacing: .newItem) {}
         }
         
-        MenuBarExtra("Diabetes Monitor", systemImage: "heart.fill") {
+        MenuBarExtra {
             MenuBarView()
                 .environmentObject(appState)
+        } label: {
+            HStack(spacing: 4) {
+                if let reading = appState.currentGlucoseReading {
+                    // Show glucose value in menu bar with color
+                    Text(String(format: "%.1f", reading.displayValue))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(reading.isInRange ? .green : (reading.isHigh ? .red : .yellow))
+                    
+                    // Add an icon according to trend
+                    Image(systemName: reading.trend.icon)
+                        .imageScale(.small)
+                        .foregroundColor(reading.rangeStatus.color)
+                } else {
+                    // Fallback when no reading is available
+                    Image(systemName: "heart.fill")
+                }
+            }
         }
         .menuBarExtraStyle(.window)
     }
@@ -586,12 +603,40 @@ struct AppKitTextField: NSViewRepresentable {
 
 @MainActor
 class AppState: ObservableObject {
+    // Add missing method for clearAllData
+    func clearAllData() async {
+        glucoseHistory = []
+        currentGlucoseReading = nil
+        // Clear CoreData if needed
+        // Could be expanded to actually clear the database
+        print("Cleared all data from memory")
+    }
+    
+    // Refactor verifyCredentials to return a result with success/message
+    struct CredentialResult {
+        let success: Bool
+        let message: String?
+    }
+    
+    func verifyCredentials(username: String, password: String) async -> CredentialResult {
+        do {
+            let isAuthenticated = try await libreViewService.checkAuthentication()
+            return CredentialResult(success: isAuthenticated, message: isAuthenticated ? nil : "Invalid credentials")
+        } catch {
+            return CredentialResult(success: false, message: error.localizedDescription)
+        }
+    }
     @Published var isAuthenticated = false
     @Published var currentGlucoseReading: GlucoseReading?
     @Published var glucoseHistory: [GlucoseReading] = []
     @Published var isLoading = false
     @Published var error: Error?
     @Published var selectedTab = 0 // Add selectedTab property
+    
+    // Current unit of measurement (mmol/L or mg/dL)
+    var currentUnit: String {
+        return UserDefaults.standard.string(forKey: "unit") ?? "mmol/L"
+    }
     
     private let libreViewService = LibreViewService()
     private let coreDataManager = ProgrammaticCoreDataManager.shared
@@ -613,12 +658,60 @@ class AppState: ObservableObject {
         }
     }
     
+    // Load saved readings from database and calculate trends
     private func loadSavedReadings() {
-        let savedReadings = coreDataManager.fetchAllGlucoseReadings()
+        var savedReadings = coreDataManager.fetchAllGlucoseReadings()
+        
         if !savedReadings.isEmpty {
-            self.glucoseHistory = savedReadings
-            self.currentGlucoseReading = savedReadings.first
-            print("📂 Loaded \(savedReadings.count) glucose readings from local database")
+            // Sort by timestamp, most recent first
+            savedReadings.sort { $0.timestamp > $1.timestamp }
+            
+            // Calculate trends for each reading using previous readings
+            var enhancedReadings = [GlucoseReading]()
+            
+            for (index, reading) in savedReadings.enumerated() {
+                // Deep copy the reading
+                var updatedReading = reading
+                
+                // For each reading, consider all readings that came before it
+                let previousReadings = Array(savedReadings.suffix(from: index + 1))
+                
+                // Use our enhanced trend calculation algorithm
+                let calculatedTrend = GlucoseReading.calculateTrend(
+                    currentReading: reading,
+                    previousReadings: previousReadings
+                )
+                
+                // Need to hack in the trend since it's calculated on-the-fly in the getter
+                if calculatedTrend == .rising {
+                    updatedReading = GlucoseReading(
+                        id: reading.id,
+                        timestamp: reading.timestamp,
+                        value: reading.value,
+                        unit: reading.unit,
+                        isHigh: true,   // Hack to set trend to rising
+                        isLow: false
+                    )
+                } else if calculatedTrend == .falling {
+                    updatedReading = GlucoseReading(
+                        id: reading.id,
+                        timestamp: reading.timestamp,
+                        value: reading.value,
+                        unit: reading.unit,
+                        isHigh: false,
+                        isLow: true     // Hack to set trend to falling
+                    )
+                } else {
+                    // Keep stable or not computable as is
+                    updatedReading = reading
+                }
+                
+                enhancedReadings.append(updatedReading)
+            }
+            
+            self.glucoseHistory = enhancedReadings
+            self.currentGlucoseReading = enhancedReadings.first
+            print("📂 Loaded \(enhancedReadings.count) glucose readings with calculated trends")
         }
     }
     
@@ -705,12 +798,57 @@ class AppState: ObservableObject {
                 print("  [\(index)] \(reading.value) \(reading.unit) at \(timestampStr)")
             }
             
-            // Save readings to CoreData database
-            coreDataManager.saveGlucoseReadings(sortedReadings)
-            print("💾 Saved \(sortedReadings.count) readings to local database")
+            // Calculate trends for readings
+            var enhancedReadings = [GlucoseReading]()
             
-            // Get latest data (including newly saved readings) from CoreData
-            loadSavedReadings()
+            for (index, reading) in sortedReadings.enumerated() {
+                // Deep copy the reading
+                var updatedReading = reading
+                
+                // For each reading, consider all readings that came before it
+                let previousReadings = Array(sortedReadings.suffix(from: index + 1))
+                
+                // Use our enhanced trend calculation algorithm
+                let calculatedTrend = GlucoseReading.calculateTrend(
+                    currentReading: reading,
+                    previousReadings: previousReadings
+                )
+                
+                // Need to hack in the trend since it's calculated on-the-fly in the getter
+                if calculatedTrend == .rising {
+                    updatedReading = GlucoseReading(
+                        id: reading.id,
+                        timestamp: reading.timestamp,
+                        value: reading.value,
+                        unit: reading.unit,
+                        isHigh: true,   // Hack to set trend to rising
+                        isLow: false
+                    )
+                } else if calculatedTrend == .falling {
+                    updatedReading = GlucoseReading(
+                        id: reading.id,
+                        timestamp: reading.timestamp,
+                        value: reading.value,
+                        unit: reading.unit,
+                        isHigh: false,
+                        isLow: true     // Hack to set trend to falling
+                    )
+                } else {
+                    // Keep stable or not computable as is
+                    updatedReading = reading
+                }
+                
+                enhancedReadings.append(updatedReading)
+            }
+            
+            // Save enhanced readings to CoreData database
+            coreDataManager.saveGlucoseReadings(enhancedReadings)
+            print("💾 Saved \(enhancedReadings.count) readings with calculated trends to database")
+            
+            self.glucoseHistory = enhancedReadings
+            self.currentGlucoseReading = enhancedReadings.first
+            
+            print("📱 Updated readings with calculated trends")
             
             if let reading = currentGlucoseReading {
                 let dateFormatter = DateFormatter()

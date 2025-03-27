@@ -202,14 +202,58 @@ struct GlucoseReading: Codable, Identifiable {
         }
     }
     
+    // For a single isolated reading without context, we still need a fallback
     var trend: GlucoseTrend {
-        // For now, we'll use a simple algorithm based on high/low flags
+        // Look at the reading flags set from the API
         if isHigh {
             return .rising
         } else if isLow {
             return .falling
         } else {
             return .stable
+        }
+    }
+    
+    // Calculate trend based on historical context
+    static func calculateTrend(currentReading: GlucoseReading, previousReadings: [GlucoseReading]) -> GlucoseTrend {
+        // Need at least one previous reading
+        guard !previousReadings.isEmpty else {
+            return currentReading.trend // Fallback to the simple calculation
+        }
+        
+        // Get readings from the last 30 minutes, sorted by time
+        let recentReadings = previousReadings
+            .filter { reading in
+                // Only consider readings from the last 30 minutes
+                let timeInterval = currentReading.timestamp.timeIntervalSince(reading.timestamp)
+                return timeInterval >= 0 && timeInterval <= 30 * 60 // 30 minutes in seconds
+            }
+            .sorted { $0.timestamp > $1.timestamp } // Most recent first
+        
+        // Need at least one recent reading
+        guard let mostRecentPrevious = recentReadings.first else {
+            return currentReading.trend // Fallback
+        }
+        
+        // Calculate rate of change in mg/dL per minute
+        let timeDiffMinutes = currentReading.timestamp.timeIntervalSince(mostRecentPrevious.timestamp) / 60.0
+        guard timeDiffMinutes > 0 else {
+            return .notComputable // Avoid division by zero or negative time
+        }
+        
+        // Ensure we're comparing in the same units (mg/dL)
+        let currentValue = currentReading.valueInMgPerDl
+        let previousValue = mostRecentPrevious.valueInMgPerDl
+        
+        let rateOfChange = (currentValue - previousValue) / timeDiffMinutes // mg/dL per minute
+        
+        // Determine trend based on rate of change
+        if abs(rateOfChange) < 0.5 { // Less than 0.5 mg/dL per minute
+            return .stable
+        } else if rateOfChange >= 0.5 {
+            return .rising
+        } else { // rateOfChange <= -0.5
+            return .falling
         }
     }
 } 

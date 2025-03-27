@@ -4,43 +4,109 @@ import Charts
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @Binding var selectedTab: Int
+    @State private var showSidebar: Bool = true
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         NavigationSplitView {
             List(selection: $appState.selectedTab) {
-                NavigationLink(value: 0) {
-                    Label("Dashboard", systemImage: "chart.bar.fill")
+                Section("Main") {
+                    NavigationLink(value: 0) {
+                        Label("Dashboard", systemImage: "gauge")
+                            .font(.headline)
+                    }
+                    NavigationLink(value: 1) {
+                        Label("History", systemImage: "clock.fill")
+                            .font(.headline)
+                    }
                 }
-                NavigationLink(value: 1) {
-                    Label("History", systemImage: "clock.fill")
+                
+                Section("Advanced Analytics") {
+                    NavigationLink(value: 3) {
+                        Label("AGP Analysis", systemImage: "chart.xyaxis.line")
+                            .font(.headline)
+                    }
+                    
+                    NavigationLink(value: 4) {
+                        Label("Calendar View", systemImage: "calendar")
+                            .font(.headline)
+                    }
+                    
+                    NavigationLink(value: 5) {
+                        Label("Daily Comparison", systemImage: "chart.bar.doc.horizontal")
+                            .font(.headline)
+                    }
                 }
-                NavigationLink(value: 2) {
-                    Label("Settings", systemImage: "gear")
+                
+                Section {
+                    NavigationLink(value: 2) {
+                        Label("Settings", systemImage: "gear")
+                            .font(.headline)
+                    }
                 }
             }
-            .navigationTitle("Diabetes Monitor")
-            .frame(minWidth: 200)
+            .navigationTitle("Glucose Monitor")
+            .listStyle(.sidebar)
+            .frame(minWidth: 220)
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button(action: { showSidebar.toggle() }) {
+                        Image(systemName: "sidebar.left")
+                    }
+                }
+            }
         } detail: {
-            Group {
-                switch appState.selectedTab {
-                case 0:
-                    DashboardView()
-                case 1:
-                    HistoryView()
-                case 2:
-                    SettingsView()
-                default:
-                    EmptyView()
+            ZStack {
+                // Background gradient
+                backgroundGradient
+                
+                Group {
+                    switch appState.selectedTab {
+                    case 0:
+                        DashboardView()
+                            .transition(.opacity)
+                    case 1:
+                        HistoryView()
+                            .transition(.opacity)
+                    case 2:
+                        SettingsView()
+                            .transition(.opacity)
+                    case 3:
+                        AGPView()
+                            .transition(.opacity)
+                    case 4:
+                        TimeInRangeCalendarView()
+                            .transition(.opacity)
+                    case 5:
+                        ComparativeDailyView()
+                            .transition(.opacity)
+                    default:
+                        EmptyView()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Material.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .shadow(color: colorScheme == .dark ? .black.opacity(0.5) : .gray.opacity(0.15), radius: 10)
+                .padding(10)
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: {
+                        Task {
+                            await appState.fetchLatestReadings()
+                        }
+                    }) {
+                        Label("Refresh", systemImage: "arrow.clockwise.circle")
+                    }
+                    .keyboardShortcut("r", modifiers: .command)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .navigationSplitViewStyle(.balanced)
         .overlay {
             if appState.isLoading {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.ultraThinMaterial)
+                LoadingView()
             }
         }
         .alert("Error", isPresented: .constant(appState.error != nil)) {
@@ -52,232 +118,237 @@ struct ContentView: View {
                 Text(error.localizedDescription)
             }
         }
-        // Since the openWindowParameters isn't working, we'll just use the existing binding
-        // The appState.selectedTab will be set directly by the MenuBarView when opening the window
+    }
+    
+    private var backgroundGradient: some View {
+        LinearGradient(
+            gradient: Gradient(colors: [
+                colorScheme == .dark ? Color(red: 0.1, green: 0.1, blue: 0.2) : Color(red: 0.95, green: 0.97, blue: 1.0),
+                colorScheme == .dark ? Color(red: 0.1, green: 0.2, blue: 0.3) : Color(red: 0.9, green: 0.95, blue: 1.0)
+            ]),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .edgesIgnoringSafeArea(.all)
+    }
+}
+
+struct LoadingView: View {
+    @State private var isAnimating = false
+    
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .edgesIgnoringSafeArea(.all)
+            
+            VStack(spacing: 20) {
+                Circle()
+                    .trim(from: 0, to: 0.7)
+                    .stroke(LinearGradient(gradient: Gradient(colors: [.blue, .purple]), startPoint: .leading, endPoint: .trailing), lineWidth: 5)
+                    .frame(width: 50, height: 50)
+                    .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
+                    .animation(Animation.linear(duration: 1).repeatForever(autoreverses: false), value: isAnimating)
+                    .onAppear {
+                        isAnimating = true
+                    }
+                
+                Text("Loading...")
+                    .font(.headline)
+                    .foregroundColor(.white)
+            }
+            .padding(30)
+            .background(Material.ultraThickMaterial)
+            .cornerRadius(20)
+            .shadow(radius: 10)
+        }
     }
 }
 
 struct DashboardView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 25) {
                 if let reading = appState.currentGlucoseReading {
                     CurrentReadingView(reading: reading)
                 }
                 
                 if !appState.glucoseHistory.isEmpty {
                     EnhancedGlucoseChartView(readings: appState.glucoseHistory)
-                        .frame(minHeight: 300)
+                        .frame(minHeight: 350)
                         .padding()
+                        .background(Material.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .shadow(color: colorScheme == .dark ? .black.opacity(0.3) : .gray.opacity(0.1), radius: 5)
                 }
                 
                 StatisticsView(readings: appState.glucoseHistory)
                     .padding(.horizontal)
+                
+                // Advanced Analytics Cards
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Advanced Analytics")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    advancedAnalyticsGrid
+                }
+                .padding(.top, 8)
             }
             .padding()
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("Dashboard")
+        .navigationSubtitle(formatDate(Date()))
+    }
+    
+    private var advancedAnalyticsGrid: some View {
+        LazyVGrid(columns: [
+            GridItem(.flexible()),
+            GridItem(.flexible()),
+            GridItem(.flexible())
+        ], spacing: 16) {
+            analyticCard(
+                title: "AGP Analysis",
+                description: "Clinical standard glucose profile",
+                icon: "chart.xyaxis.line",
+                color: .blue,
+                destination: 3
+            )
+            
+            analyticCard(
+                title: "Calendar View",
+                description: "Time in range heatmap",
+                icon: "calendar",
+                color: .green,
+                destination: 4
+            )
+            
+            analyticCard(
+                title: "Compare Days",
+                description: "Overlay multiple days of data",
+                icon: "chart.bar.doc.horizontal",
+                color: .purple,
+                destination: 5
+            )
+        }
+    }
+    
+    private func analyticCard(title: String, description: String, icon: String, color: Color, destination: Int) -> some View {
+        Button(action: {
+            appState.selectedTab = destination
+        }) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(.title2)
+                        .foregroundStyle(color)
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Material.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(color.opacity(0.3), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return "Last updated: " + formatter.string(from: date)
     }
 }
 
 struct CurrentReadingView: View {
     let reading: GlucoseReading
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
-        VStack(spacing: 12) {
-            Text("Current Reading")
-                .font(.headline)
+        VStack(spacing: 16) {
+            HStack {
+                Text("Current Reading")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                HStack(spacing: 5) {
+                    Image(systemName: "clock")
+                        .imageScale(.small)
+                    Text(formatTime(reading.timestamp))
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
             
-            HStack(alignment: .center, spacing: 20) {
+            HStack(alignment: .center, spacing: 30) {
                 VStack {
                     Text(String(format: "%.1f", reading.displayValue))
-                        .font(.system(size: 48, weight: .bold))
+                        .font(.system(size: 60, weight: .bold, design: .rounded))
+                        .foregroundColor(reading.rangeStatus.color)
+                        .contentTransition(.numericText())
+                        .shadow(color: reading.rangeStatus.color.opacity(0.4), radius: 2, x: 0, y: 1)
+                    
                     Text(reading.displayUnit)
                         .font(.subheadline)
+                        .foregroundColor(.secondary)
                 }
                 
-                Image(systemName: reading.trend.icon)
-                    .font(.system(size: 32))
-                    .foregroundColor(reading.rangeStatus.color)
-            }
-            
-            Text(reading.trend.description)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .background(RoundedRectangle(cornerRadius: 12).fill(.background))
-        .shadow(radius: 2)
-    }
-}
-
-struct GlucoseChartView: View {
-    let readings: [GlucoseReading]
-    @State private var chartType: ChartType = .line
-    
-    enum ChartType {
-        case line
-        case bar
-    }
-    
-    // Helper properties to simplify threshold calculations
-    private var currentUnit: String {
-        UserDefaults.standard.string(forKey: "unit") ?? "mg/dL"
-    }
-    
-    private var thresholds: (low: Double, high: Double) {
-        // Parse thresholds from UserDefaults
-        let lowThresholdString = UserDefaults.standard.string(forKey: "lowThreshold") ?? 
-                                (currentUnit == "mmol" ? "4.0" : "70")
-        let highThresholdString = UserDefaults.standard.string(forKey: "highThreshold") ?? 
-                                 (currentUnit == "mmol" ? "10.0" : "180")
-        
-        let lowThreshold = Double(lowThresholdString) ?? (currentUnit == "mmol" ? 4.0 : 70.0)
-        let highThreshold = Double(highThresholdString) ?? (currentUnit == "mmol" ? 10.0 : 180.0)
-        
-        return (low: lowThreshold, high: highThreshold)
-    }
-    
-    private var displayThresholds: (low: Double, high: Double) {
-        // Convert to mmol/L for display
-        let isMMOL = currentUnit == "mmol"
-        let displayLow = isMMOL ? thresholds.low : thresholds.low / 18.0182
-        let displayHigh = isMMOL ? thresholds.high : thresholds.high / 18.0182
-        
-        return (low: displayLow, high: displayHigh)
-    }
-    
-    var body: some View {
-        VStack {
-            HStack {
-                Spacer()
-                Picker("", selection: $chartType) {
-                    Image(systemName: "waveform.path")
-                        .imageScale(.medium)
-                        .tag(ChartType.line)
-                    Image(systemName: "chart.bar.fill")
-                        .imageScale(.medium)
-                        .tag(ChartType.bar)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 80)
-                .padding(.horizontal)
-            }
-            
-            Chart(readings) { reading in
-                if chartType == .line {
-                    LineMark(
-                        x: .value("Time", reading.timestamp),
-                        y: .value("Glucose", reading.displayValue)
-                    )
-                    .foregroundStyle(reading.rangeStatus.color)
-                } else {
-                    BarMark(
-                        x: .value("Time", reading.timestamp),
-                        y: .value("Glucose", reading.displayValue)
-                    )
-                    .foregroundStyle(reading.rangeStatus.color)
+                VStack(spacing: 10) {
+                    Image(systemName: reading.trend.icon)
+                        .font(.system(size: 40))
+                        .foregroundColor(reading.rangeStatus.color)
+                        .symbolEffect(.pulse, options: .repeating, value: reading.isInRange ? false : true)
                     
-                    RuleMark(
-                        x: .value("Time", reading.timestamp),
-                        yStart: .value("Start", reading.displayValue),
-                        yEnd: .value("End", reading.displayValue)
-                    )
-                    .annotation(position: .top) {
-                        Text(String(format: "%.1f", reading.displayValue))
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 4)
-                            .background(.background.opacity(0.8))
-                    }
+                    Text(reading.trend.description)
+                        .font(.system(.subheadline, design: .rounded, weight: .medium))
+                        .foregroundColor(.secondary)
                 }
-            }
-            .chartXScale(range: .plotDimension(padding: 40))
-            .chartYScale(domain: 3...27)
-            .chartYAxis {
-                AxisMarks(values: [3, 6, 9, 12, 15, 18, 21, 24, 27]) { value in
-                    AxisGridLine()
-                    AxisTick()
-                    AxisValueLabel {
-                        if let reading = value.as(Double.self) {
-                            Text(String(format: "%.0f", reading))
-                        }
-                    }
-                }
-            }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .hour, count: 3)) { value in
-                    AxisGridLine()
-                    AxisTick()
-                    if let date = value.as(Date.self) {
-                        AxisValueLabel(formatDate(date))
-                    }
-                }
-            }
-            .overlay {
-                ChartOverlayView(displayLow: displayThresholds.low, displayHigh: displayThresholds.high)
             }
         }
+        .padding(20)
+        .background(Material.thickMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: colorScheme == .dark ? .black.opacity(0.3) : .gray.opacity(0.1), radius: 5)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(reading.rangeStatus.color.opacity(0.3), lineWidth: 1)
+        )
     }
     
-    private func formatDate(_ date: Date) -> String {
+    private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
+        formatter.timeStyle = .short
         return formatter.string(from: date)
-    }
-}
-
-// Break out overlay into its own structure to simplify the main view
-struct ChartOverlayView: View {
-    let displayLow: Double
-    let displayHigh: Double
-    
-    var body: some View {
-        GeometryReader { geometry in
-            // Print for debugging
-            let _ = print("Chart thresholds - low: \(displayLow), high: \(displayHigh) mmol/L")
-            
-            // Calculate scale (accounting for the 3-27 range = 24 units of range)
-            let yScale = geometry.size.height / 24
-            
-            // Target range rectangle
-            targetRangeRectangle(geometry: geometry, yScale: yScale)
-            
-            // Low threshold line
-            thresholdLine(geometry: geometry, threshold: displayLow, yScale: yScale, color: .yellow)
-            
-            // High threshold line
-            thresholdLine(geometry: geometry, threshold: displayHigh, yScale: yScale, color: .red)
-        }
-    }
-    
-    // Helper views to break down the complex calculations
-    private func targetRangeRectangle(geometry: GeometryProxy, yScale: CGFloat) -> some View {
-        let height = (displayHigh - displayLow) * yScale
-        let yPosition = geometry.size.height - ((displayHigh + displayLow) / 2 - 3) * yScale
-        
-        return Rectangle()
-            .fill(Color.green.opacity(0.1))
-            .frame(width: geometry.size.width, height: height)
-            .position(x: geometry.size.width / 2, y: yPosition)
-    }
-    
-    private func thresholdLine(geometry: GeometryProxy, threshold: Double, yScale: CGFloat, color: Color) -> some View {
-        let yPosition = geometry.size.height - ((threshold - 3) * yScale)
-        
-        return Path { path in
-            path.move(to: CGPoint(x: 0, y: yPosition))
-            path.addLine(to: CGPoint(x: geometry.size.width, y: yPosition))
-        }
-        .stroke(color.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [5]))
     }
 }
 
 struct StatisticsView: View {
     let readings: [GlucoseReading]
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         LazyVGrid(columns: [
@@ -285,19 +356,21 @@ struct StatisticsView: View {
             GridItem(.flexible()),
             GridItem(.flexible())
         ], spacing: 20) {
-            StatCard(title: "Average", value: calculateAverage())
-            StatCard(title: "Time in Range", value: calculateTimeInRange())
-            StatCard(title: "Readings", value: "\(readings.count)")
+            StatCard(title: "Average", value: calculateAverage(), icon: "number")
+            StatCard(title: "Time in Range", value: calculateTimeInRange(), icon: "timer")
+            StatCard(title: "Readings", value: "\(readings.count)", icon: "list.bullet.clipboard")
         }
     }
     
     private func calculateAverage() -> String {
+        guard !readings.isEmpty else { return "0.0" }
         let values = readings.map { $0.displayValue }
         let average = values.reduce(0, +) / Double(values.count)
         return String(format: "%.1f", average)
     }
     
     private func calculateTimeInRange() -> String {
+        guard !readings.isEmpty else { return "0%" }
         let inRange = readings.filter { $0.isInRange }.count
         let percentage = Double(inRange) / Double(readings.count) * 100
         return String(format: "%.1f%%", percentage)
@@ -307,22 +380,38 @@ struct StatisticsView: View {
 struct StatCard: View {
     let title: String
     let value: String
+    let icon: String
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundStyle(.secondary)
+                
+                Spacer()
+            }
+            
+            HStack {
+                Spacer()
+                Text(value)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                Spacer()
+            }
+            
             Text(title)
-                .font(.headline)
-            Text(value)
-                .font(.title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.secondary)
         }
         .padding()
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.background))
-        .shadow(radius: 2)
+        .background(Material.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: colorScheme == .dark ? .black.opacity(0.3) : .gray.opacity(0.1), radius: 5)
     }
 }
 
 #Preview {
     ContentView(selectedTab: .constant(0))
         .environmentObject(AppState())
-} 
+}
