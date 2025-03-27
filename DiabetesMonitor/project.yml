@@ -9,6 +9,8 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+    dependencies:
+      - framework: CoreData.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.magiworks.diabetesmonitor

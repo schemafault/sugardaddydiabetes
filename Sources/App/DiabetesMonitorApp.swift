@@ -1,10 +1,21 @@
 import SwiftUI
 import AppKit
+import CoreData
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var appState: AppState?
+    var updateTimer: Timer?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Initialize CoreData with programmatic model
+        _ = ProgrammaticCoreDataManager.shared
+        
+        // Configure update timer
+        setupUpdateTimer()
+        
+        // Handle Termination
+        NSApplication.shared.registerForRemoteNotifications()
+        
         print("App did finish launching")
         
         // Set proper activation policy
@@ -77,6 +88,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidResignActive(_ notification: Notification) {
         print("App resigned active")
+    }
+    
+    private func setupUpdateTimer() {
+        // Check for glucose updates every 5 minutes (300 seconds)
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            guard let appState = self?.appState else { return }
+            
+            Task {
+                await appState.fetchLatestReadings()
+            }
+        }
+    }
+    
+    func applicationWillTerminate(_ aNotification: Notification) {
+        // Stop timer
+        updateTimer?.invalidate()
+        
+        // Ensure CoreData is saved on exit
+        ProgrammaticCoreDataManager.shared.saveContext()
     }
 }
 
@@ -564,11 +594,15 @@ class AppState: ObservableObject {
     @Published var selectedTab = 0 // Add selectedTab property
     
     private let libreViewService = LibreViewService()
+    private let coreDataManager = ProgrammaticCoreDataManager.shared
     
     // Set to false to always use real API data
     private let useTestData = false
     
     init() {
+        // Load saved readings from CoreData
+        loadSavedReadings()
+        
         Task {
             do {
                 _ = try await checkAuthentication()
@@ -576,6 +610,15 @@ class AppState: ObservableObject {
                 // Don't set the error here, as we'll handle credentials via onboarding
                 isAuthenticated = false
             }
+        }
+    }
+    
+    private func loadSavedReadings() {
+        let savedReadings = coreDataManager.fetchAllGlucoseReadings()
+        if !savedReadings.isEmpty {
+            self.glucoseHistory = savedReadings
+            self.currentGlucoseReading = savedReadings.first
+            print("📂 Loaded \(savedReadings.count) glucose readings from local database")
         }
     }
     
@@ -662,8 +705,12 @@ class AppState: ObservableObject {
                 print("  [\(index)] \(reading.value) \(reading.unit) at \(timestampStr)")
             }
             
-            glucoseHistory = sortedReadings
-            currentGlucoseReading = sortedReadings.first
+            // Save readings to CoreData database
+            coreDataManager.saveGlucoseReadings(sortedReadings)
+            print("💾 Saved \(sortedReadings.count) readings to local database")
+            
+            // Get latest data (including newly saved readings) from CoreData
+            loadSavedReadings()
             
             if let reading = currentGlucoseReading {
                 let dateFormatter = DateFormatter()

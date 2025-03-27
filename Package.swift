@@ -19,7 +19,8 @@ let package = Package(
             dependencies: [],
             path: "Sources",
             resources: [
-                .process("../Info.plist")
+                .process("../Info.plist"),
+                .copy("Models/CoreData/DiabetesData.xcdatamodeld")
             ]
         )
     ]
