@@ -123,6 +123,7 @@ struct EnhancedGlucoseChartView: View {
         VStack(spacing: 12) {
             controlsRow
             chartContent
+                .animation(.easeInOut(duration: 0.3), value: chartType)
             selectedReadingView
             legendView
         }
@@ -229,20 +230,39 @@ struct EnhancedGlucoseChartView: View {
             
             // Main data using line or bar charts
             if chartType == .line {
-                // Line chart
+                // Line chart with enhanced styling
                 ForEach(readings) { reading in
+                    // Line connecting points
                     LineMark(
                         x: .value("Time", reading.timestamp),
                         y: .value("Glucose", reading.displayValue)
                     )
-                    .foregroundStyle(reading.rangeStatus.color.gradient)
-                    .symbol {
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                reading.rangeStatus.color.opacity(0.7),
+                                reading.rangeStatus.color
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .lineStyle(StrokeStyle(lineWidth: 2.5))
+                    .interpolationMethod(.catmullRom)
+                    
+                    // Points on the line
+                    PointMark(
+                        x: .value("Time", reading.timestamp),
+                        y: .value("Glucose", reading.displayValue)
+                    )
+                    .foregroundStyle(Color.white)
+                    .symbolSize(28)
+                    .annotation(position: .overlay) {
                         Circle()
                             .fill(reading.rangeStatus.color)
                             .frame(width: 8, height: 8)
+                            .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
                     }
-                    .interpolationMethod(.catmullRom)
-                    .symbolSize(30)
                 }
             } else {
                 // Bar chart with proper baseline and value labels
@@ -255,7 +275,16 @@ struct EnhancedGlucoseChartView: View {
                         yEnd: .value("Glucose", reading.displayValue),
                         width: .fixed(4) // Fixed width to prevent overlapping bars
                     )
-                    .foregroundStyle(reading.rangeStatus.color.gradient)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                reading.rangeStatus.color.opacity(0.8),
+                                reading.rangeStatus.color
+                            ],
+                            startPoint: .bottom,
+                            endPoint: .top
+                        )
+                    )
                     .cornerRadius(4)
                     .annotation(position: .top, alignment: .center, spacing: 0) {
                         // Show label if we have few readings OR it's an important reading
@@ -272,8 +301,11 @@ struct EnhancedGlucoseChartView: View {
                                 // Use colored background matching the reading status
                                 .padding(.horizontal, 3)
                                 .padding(.vertical, 1)
-                                .background(reading.rangeStatus.color.opacity(0.8)) // Use same color as the bar
-                                .cornerRadius(3)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(reading.rangeStatus.color.opacity(0.8))
+                                        .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                                )
                         }
                     }
                 }
@@ -388,27 +420,27 @@ struct EnhancedGlucoseChartView: View {
         }
     }
     
-    // Extract drag gesture handling to separate method
+    // Fixed drag gesture handling to properly map mouse position to data points
     private func handleDragGesture(value: DragGesture.Value, geometry: GeometryProxy, proxy: ChartProxy) {
         let x = value.location.x
-        guard x >= 0, x <= geometry.size.width else { return }
+        guard x >= 0, x <= geometry.size.width, !readings.isEmpty else { return }
         
-        // Calculate relativeXPosition in the plot
-        let relativeXPosition = x / geometry.size.width
-        
-        // Find closest reading based on timestamp
-        // First convert screen position to chart scale
-        let dateStart = readings.first?.timestamp ?? Date()
-        let dateEnd = readings.last?.timestamp ?? Date()
-        let range = dateEnd.timeIntervalSince(dateStart)
-        
-        // Estimate the date at the x position
-        let approximateDate = Date(timeInterval: range * Double(relativeXPosition), since: dateStart)
-        
-        // Find the closest reading by date
-        selectedReading = readings.min { reading1, reading2 in
-            abs(reading1.timestamp.timeIntervalSince(approximateDate)) < 
-            abs(reading2.timestamp.timeIntervalSince(approximateDate))
+        // Use ChartProxy to directly map from the screen position to the chart's plotted date
+        if let timestamp = proxy.value(atX: x, as: Date.self) {
+            // Now find the closest reading to this timestamp
+            var closestReading: GlucoseReading? = nil
+            var minTimeDifference = Double.infinity
+            
+            for reading in readings {
+                let timeDifference = abs(reading.timestamp.timeIntervalSince(timestamp))
+                if timeDifference < minTimeDifference {
+                    minTimeDifference = timeDifference
+                    closestReading = reading
+                }
+            }
+            
+            // Update selected reading
+            selectedReading = closestReading
         }
     }
     
@@ -417,7 +449,7 @@ struct EnhancedGlucoseChartView: View {
     private var selectedReadingView: some View {
         if let reading = selectedReading, isHovering {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(formatDateTime(reading.timestamp))
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -425,23 +457,43 @@ struct EnhancedGlucoseChartView: View {
                     HStack(spacing: 10) {
                         Text(String(format: "%.1f %@", reading.displayValue, reading.displayUnit))
                             .font(.headline)
+                            .foregroundColor(reading.rangeStatus.color)
+                            .fontWeight(.bold)
                         
                         HStack(spacing: 4) {
                             Image(systemName: reading.trend.icon)
+                                .foregroundColor(reading.rangeStatus.color)
                             Text(reading.trend.description)
+                                .foregroundColor(.primary)
                         }
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    }
+                    
+                    // Show range status
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(reading.rangeStatus.color)
+                            .frame(width: 8, height: 8)
+                        
+                        Text(reading.isInRange ? "In Range" : (reading.isHigh ? "High" : "Low"))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                 }
                 
                 Spacer()
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(Material.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .transition(.opacity)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(reading.rangeStatus.color.opacity(0.3), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            .animation(.spring(response: 0.2), value: selectedReading?.id)
         }
     }
     
@@ -492,7 +544,7 @@ struct EnhancedGlucoseChartView: View {
     }
 }
 
-// Background view showing threshold zones
+// Enhanced background view showing threshold zones
 struct ChartBackgroundView: View {
     let lowThreshold: Double
     let highThreshold: Double
@@ -503,21 +555,59 @@ struct ChartBackgroundView: View {
             ZStack(alignment: .top) {
                 // Low zone (below lowThreshold)
                 Rectangle()
-                    .fill(Color.yellow.opacity(0.08))
-                    .frame(height: calculateZoneHeight(for: lowThreshold, in: geo))
-                    .position(x: geo.size.width / 2, y: calculateZonePosition(for: lowThreshold / 2, in: geo))
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.yellow.opacity(colorScheme == .dark ? 0.12 : 0.08),
+                                Color.yellow.opacity(colorScheme == .dark ? 0.08 : 0.04)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(height: calculateZoneHeight(for: lowThreshold - 3, in: geo))
+                    .position(x: geo.size.width / 2, y: calculateZonePosition(for: (lowThreshold + 3) / 2, in: geo))
                 
                 // Normal zone (between lowThreshold and highThreshold)
                 Rectangle()
-                    .fill(Color.green.opacity(0.08))
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.green.opacity(colorScheme == .dark ? 0.15 : 0.08),
+                                Color.green.opacity(colorScheme == .dark ? 0.08 : 0.04)
+                            ],
+                            startPoint: .center,
+                            endPoint: .bottom
+                        )
+                    )
                     .frame(height: calculateZoneHeight(for: highThreshold - lowThreshold, in: geo))
                     .position(x: geo.size.width / 2, y: calculateZonePosition(for: (lowThreshold + highThreshold) / 2, in: geo))
                 
                 // High zone (above highThreshold)
                 Rectangle()
-                    .fill(Color.red.opacity(0.08))
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.red.opacity(colorScheme == .dark ? 0.18 : 0.1),
+                                Color.red.opacity(colorScheme == .dark ? 0.12 : 0.05)
+                            ],
+                            startPoint: .bottom,
+                            endPoint: .top
+                        )
+                    )
                     .frame(height: calculateZoneHeight(for: 27 - highThreshold, in: geo))
                     .position(x: geo.size.width / 2, y: calculateZonePosition(for: (highThreshold + 27) / 2, in: geo))
+                
+                // Add subtle borders at the thresholds
+                Rectangle()
+                    .fill(Color.yellow.opacity(0.3))
+                    .frame(height: 1)
+                    .position(x: geo.size.width / 2, y: calculateZonePosition(for: lowThreshold, in: geo))
+                
+                Rectangle()
+                    .fill(Color.red.opacity(0.3))
+                    .frame(height: 1)
+                    .position(x: geo.size.width / 2, y: calculateZonePosition(for: highThreshold, in: geo))
             }
         }
     }
