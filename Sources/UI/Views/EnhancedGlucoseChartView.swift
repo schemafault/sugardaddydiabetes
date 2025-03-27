@@ -122,11 +122,54 @@ struct EnhancedGlucoseChartView: View {
     var body: some View {
         VStack(spacing: 12) {
             controlsRow
+            
+            // Quick stats of displayed data
+            if !readings.isEmpty {
+                HStack(spacing: 16) {
+                    StatChip(
+                        label: "Average",
+                        value: String(format: "%.1f", calculateAverage()),
+                        color: .blue,
+                        icon: "number.circle.fill"
+                    )
+                    
+                    StatChip(
+                        label: "Time in Range",
+                        value: String(format: "%.0f%%", calculateTimeInRange()),
+                        color: .green,
+                        icon: "checkmark.circle.fill"
+                    )
+                    
+                    StatChip(
+                        label: "Readings",
+                        value: "\(readings.count)",
+                        color: .purple,
+                        icon: "waveform.path.ecg.rectangle.fill"
+                    )
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 32)
+            }
+            
             chartContent
                 .animation(.easeInOut(duration: 0.3), value: chartType)
             selectedReadingView
             legendView
         }
+    }
+    
+    // Helper methods to calculate statistics
+    private func calculateAverage() -> Double {
+        guard !readings.isEmpty else { return 0 }
+        return readings.map { $0.displayValue }.reduce(0, +) / Double(readings.count)
+    }
+    
+    private func calculateTimeInRange() -> Double {
+        guard !readings.isEmpty else { return 0 }
+        let inRangeCount = readings.filter { $0.isInRange }.count
+        return Double(inRangeCount) / Double(readings.count) * 100
     }
     
     // Break out controls into a separate view
@@ -355,6 +398,45 @@ struct EnhancedGlucoseChartView: View {
             RuleMark(y: .value("High Threshold", displayThresholds.high))
                 .foregroundStyle(.red.opacity(0.7))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
+                
+            // Highlight significant readings (highest and lowest points)
+            if let highestReading = readings.max(by: { $0.displayValue < $1.displayValue }),
+               highestReading.isHigh {
+                PointMark(
+                    x: .value("Time", highestReading.timestamp),
+                    y: .value("Glucose", highestReading.displayValue)
+                )
+                .foregroundStyle(.red)
+                .symbolSize(60)
+                .annotation(position: .top) {
+                    Text(String(format: "Peak: %.1f", highestReading.displayValue))
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(4)
+                }
+            }
+            
+            if let lowestReading = readings.min(by: { $0.displayValue < $1.displayValue }),
+               lowestReading.isLow {
+                PointMark(
+                    x: .value("Time", lowestReading.timestamp),
+                    y: .value("Glucose", lowestReading.displayValue)
+                )
+                .foregroundStyle(.yellow)
+                .symbolSize(60)
+                .annotation(position: .bottom) {
+                    Text(String(format: "Low: %.1f", lowestReading.displayValue))
+                        .font(.caption2)
+                        .foregroundColor(.yellow)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(Color.yellow.opacity(0.1))
+                        .cornerRadius(4)
+                }
+            }
             
             if let selectedReading = selectedReading {
                 RuleMark(x: .value("Selected Time", selectedReading.timestamp))
@@ -645,6 +727,40 @@ struct LegendItem: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
+    }
+}
+
+// Stat chip for showing statistics
+struct StatChip: View {
+    let label: String
+    let value: String
+    let color: Color
+    let icon: String
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .foregroundColor(color)
+                .font(.system(size: 11))
+            
+            Text(value)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.primary)
+            
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Material.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(color.opacity(0.2), lineWidth: 1)
+        )
     }
 }
 
