@@ -126,7 +126,13 @@ struct MenuBarView: View {
                 appState.selectedTab = 0
                 
                 DispatchQueue.main.async {
-                    openWindow(id: "main")
+                    // First try to find existing window
+                    if let existingWindow = findMainAppWindow() {
+                        existingWindow.makeKeyAndOrderFront(nil)
+                    } else {
+                        // Only open a new window if none exists
+                        openWindow(id: "main")
+                    }
                 }
             }
             
@@ -135,7 +141,13 @@ struct MenuBarView: View {
                 appState.selectedTab = 1
                 
                 DispatchQueue.main.async {
-                    openWindow(id: "main")
+                    // First try to find existing window
+                    if let existingWindow = findMainAppWindow() {
+                        existingWindow.makeKeyAndOrderFront(nil)
+                    } else {
+                        // Only open a new window if none exists
+                        openWindow(id: "main")
+                    }
                 }
             }
             
@@ -150,7 +162,13 @@ struct MenuBarView: View {
                 appState.selectedTab = 2
                 
                 DispatchQueue.main.async {
-                    openWindow(id: "main")
+                    // First try to find existing window
+                    if let existingWindow = findMainAppWindow() {
+                        existingWindow.makeKeyAndOrderFront(nil)
+                    } else {
+                        // Only open a new window if none exists
+                        openWindow(id: "main")
+                    }
                 }
             }
             
@@ -191,6 +209,39 @@ struct MenuBarView: View {
         formatter.dateStyle = .short
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+    
+    // Helper function to find the main application window
+    private func findMainAppWindow() -> NSWindow? {
+        // First, look for a window with "Diabetes Monitor" in the title
+        for window in NSApp.windows where window.title.contains("Diabetes Monitor") {
+            return window
+        }
+        
+        // If not found, check for windows with "Dashboard" title
+        for window in NSApp.windows where window.title.contains("Dashboard") {
+            return window
+        }
+        
+        // Last resort: find any window that could be a main app window
+        // Filtering out menu extra windows and others that can't be main/key
+        for window in NSApp.windows {
+            let windowClass = NSStringFromClass(type(of: window))
+            
+            // Skip status and menu bar windows
+            if windowClass.contains("StatusBarWindow") || 
+               windowClass.contains("MenuBarExtra") {
+                continue
+            }
+            
+            // Check if window can be key or main, has proper style mask
+            if window.canBecomeKey || window.canBecomeMain,
+               window.styleMask.contains(.titled) {
+                return window
+            }
+        }
+        
+        return nil
     }
 }
 

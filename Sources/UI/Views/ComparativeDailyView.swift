@@ -118,6 +118,7 @@ struct ComparativeDailyView: View {
                                 Text("Low")
                                     .font(.caption)
                                     .foregroundColor(.yellow)
+                                    .padding(.leading, 4)
                             }
                         
                         RuleMark(y: .value("High", highThreshold))
@@ -127,6 +128,7 @@ struct ComparativeDailyView: View {
                                 Text("High")
                                     .font(.caption)
                                     .foregroundColor(.red)
+                                    .padding(.leading, 4)
                             }
                     }
                     .chartXAxis {
@@ -140,8 +142,14 @@ struct ComparativeDailyView: View {
                         }
                     }
                     .chartYScale(domain: getYAxisRange())
+                    // Add explicit plot area insets to make room for the left labels
+                    .chartPlotStyle { content in
+                        content
+                            .frame(height: 250)
+                            .padding(.leading, 40) // Important: This creates space for the annotations
+                    }
                     .frame(height: 250)
-                    .padding()
+                    .padding(.vertical, 12)
                 }
             } else {
                 Text("Insufficient data to compare days")

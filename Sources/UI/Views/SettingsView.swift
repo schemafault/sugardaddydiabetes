@@ -356,29 +356,49 @@ struct SettingsView: View {
             UserDefaults.debugValue(forKey: "username")
             UserDefaults.debugValue(forKey: "password")
             
-            // Attempt to verify credentials before saving
-            let result = await appState.verifyCredentials(username: newUsername, password: newPassword)
-            
+            // IMPORTANT: First save the credentials without verification
+            // This ensures we don't get into a state where verification fails but user can't update credentials
             await MainActor.run {
-                isSaving = false
+                print("Saving credentials without verification first")
+                UserDefaults.standard.set(newUsername, forKey: "username")
+                UserDefaults.standard.set(newPassword, forKey: "password")
+                UserDefaults.standard.synchronize()
                 
-                if result.success {
-                    // IMPORTANT: Save both username and password to UserDefaults
-                    UserDefaults.standard.set(newUsername, forKey: "username")
-                    UserDefaults.standard.set(newPassword, forKey: "password")
-                    // Then update the @AppStorage properties which should reflect the changes
-                    username = newUsername
-                    password = newPassword
+                // Update @AppStorage properties which should reflect the changes
+                username = newUsername
+                password = newPassword
+            }
+            
+            // Now attempt to verify the credentials - this is secondary
+            // Even if verification fails, we'll keep the credentials
+            do {
+                print("Attempting to verify credentials after saving")
+                let isValid = try await appState.checkAuthentication()
+                
+                await MainActor.run {
+                    isSaving = false
                     
-                    // Verify that values were properly saved
-                    print("After save - Verifying values in UserDefaults:")
-                    UserDefaults.debugValue(forKey: "username")
-                    UserDefaults.debugValue(forKey: "password")
-                    
-                    isEditingAccount = false
-                    appState.isAuthenticated = true
-                } else {
-                    loginErrorMessage = result.message ?? "Failed to verify account credentials. Please check your username and password."
+                    if isValid {
+                        print("Credentials verified successfully")
+                        isEditingAccount = false
+                        appState.isAuthenticated = true
+                        
+                        // Force refresh data with new credentials
+                        Task {
+                            await appState.fetchLatestReadings()
+                        }
+                    } else {
+                        // Even if verification fails, keep the credentials
+                        print("Warning: Credentials were saved but verification returned false")
+                        loginErrorMessage = "Credentials saved, but verification failed. Your credentials may be incorrect."
+                        showingLoginError = true
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isSaving = false
+                    print("Verification error: \(error)")
+                    loginErrorMessage = "Credentials saved, but verification encountered an error: \(error.localizedDescription)"
                     showingLoginError = true
                 }
             }

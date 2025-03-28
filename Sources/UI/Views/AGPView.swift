@@ -100,6 +100,7 @@ struct AGPView: View {
                     
                     agpChartView
                         .frame(height: 300)
+                        .padding(.horizontal, 16) // Add more horizontal padding
                 }
                 .padding()
                 .background(Material.ultraThinMaterial)
@@ -204,6 +205,7 @@ struct AGPView: View {
                             Text("Low")
                                 .font(.caption)
                                 .foregroundColor(.yellow)
+                                .padding(.leading, 4)
                         }
                     }
                 
@@ -215,11 +217,17 @@ struct AGPView: View {
                             Text("High")
                                 .font(.caption)
                                 .foregroundColor(.red)
+                                .padding(.leading, 4)
                         }
                     }
             }
             .chartXScale(domain: normalizeTimeOfDay(Date(), hour: 0, minute: 0)...normalizeTimeOfDay(Date(), hour: 23, minute: 59))
             .chartYScale(domain: 3...27)
+            // Add explicit plot area insets to make room for the left labels
+            .chartPlotStyle { content in
+                content
+                    .padding(.leading, 40) // Important: This creates space for the annotations
+            }
             .chartXAxis {
                 AxisMarks(values: .stride(by: .hour, count: 3)) { value in
                     AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
