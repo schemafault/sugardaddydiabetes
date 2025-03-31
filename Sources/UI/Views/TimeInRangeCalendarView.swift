@@ -214,43 +214,55 @@ struct TimeInRangeCalendarView: View {
         let dayNumber = calendar.component(.day, from: date)
         let hasData = timeInRangeForDate(date) != nil
         
-        return ZStack {
-            Rectangle()
-                .fill(colorForDate(date))
-                .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isSelected ? Color.blue : (isToday ? Color.secondary : Color.clear), lineWidth: isSelected ? 2 : 1)
-                )
+        return Button(action: {
+            // On click, select the date
+            selectedDate = date
             
-            VStack {
-                Text("\(dayNumber)")
-                    .font(.system(size: 12, weight: isToday ? .bold : .regular))
-                    .foregroundColor(isToday ? .primary : .secondary)
+            // For cells with data, make it possible to double-click
+            // by adding a Detail button in the day detail view
+            if hasData {
+                // Add a small delay to allow for a potential second click
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    // If the date is still selected, show the detail view
+                    if selectedDate == date {
+                        showingDayDetail = true
+                    }
+                }
+            }
+        }) {
+            // Cell content
+            ZStack {
+                Rectangle()
+                    .fill(colorForDate(date))
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSelected ? Color.blue : (isToday ? Color.secondary : Color.clear), lineWidth: isSelected ? 2 : 1)
+                    )
                 
-                if let avg = averageGlucoseForDate(date) {
-                    Text(String(format: "%.1f", avg))
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                VStack {
+                    Text("\(dayNumber)")
+                        .font(.system(size: 12, weight: isToday ? .bold : .regular))
+                        .foregroundColor(isToday ? .primary : .secondary)
+                    
+                    if let avg = averageGlucoseForDate(date) {
+                        Text(String(format: "%.1f", avg))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }
-        .onTapGesture {
-            selectedDate = date
-        }
-        .onLongPressGesture {
-            // Only show detail if we have data for this day
+        .buttonStyle(PlainButtonStyle())
+        .contextMenu {
             if hasData {
-                selectedDate = date
-                showingDayDetail = true
-            } else {
-                // If no data, just select the date without showing detail
-                selectedDate = date
+                Button("View Details") {
+                    selectedDate = date
+                    showingDayDetail = true
+                }
             }
         }
-        // Add visual feedback for long-pressable days
-        .contentShape(Rectangle())
         .opacity(hasData ? 1.0 : 0.8)
     }
     
@@ -277,7 +289,7 @@ struct TimeInRangeCalendarView: View {
                         .foregroundColor(.secondary)
                     
                     HStack(spacing: 4) {
-                        Text("Long press for day details")
+                        Text("Click or right-click for details")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
