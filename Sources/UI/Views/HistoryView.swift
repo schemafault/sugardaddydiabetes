@@ -170,10 +170,10 @@ struct HistoryView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .onChange(of: selectedTimeFrame) { _ in
+                .onChange(of: selectedTimeFrame) { oldValue, newValue in
                     // Force UI update when filter changes
                     // This ensures the filter is immediately applied
-                    print("Time filter changed to: \(selectedTimeFrame.rawValue)")
+                    print("Time filter changed from \(oldValue.rawValue) to \(newValue.rawValue)")
                 }
                 
                 // Range filter button

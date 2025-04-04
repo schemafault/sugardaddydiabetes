@@ -48,7 +48,21 @@ struct EnhancedGlucoseChartView: View {
     // Unique days available in the data
     private var availableDays: [Date] {
         let calendar = Calendar.current
-        return Array(Set(readings.map { calendar.startOfDay(for: $0.timestamp) })).sorted(by: >)
+        // Get unique days, sort by most recent first
+        let days = Array(Set(readings.map { calendar.startOfDay(for: $0.timestamp) })).sorted(by: >)
+        
+        // For better performance, limit to most recent 30 days
+        return days.count > 30 ? Array(days.prefix(30)) : days
+    }
+    
+    // Helper method to determine timespan of readings in seconds
+    private func getReadingsTimespan() -> TimeInterval {
+        guard let oldestReading = readings.min(by: { $0.timestamp < $1.timestamp }),
+              let newestReading = readings.max(by: { $0.timestamp < $1.timestamp }) else {
+            return 0
+        }
+        
+        return newestReading.timestamp.timeIntervalSince(oldestReading.timestamp)
     }
     
     // Readings for the selected comparison day
@@ -447,15 +461,44 @@ struct EnhancedGlucoseChartView: View {
         .chartXScale(range: .plotDimension(padding: 40))
         .chartYScale(domain: 3...27)
         .chartXAxis {
-            AxisMarks(values: .stride(by: .hour, count: 3)) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-                    .foregroundStyle(Color.secondary.opacity(0.3))
-                AxisTick(stroke: StrokeStyle(lineWidth: 1))
-                    .foregroundStyle(Color.secondary)
-                if let date = value.as(Date.self) {
-                    AxisValueLabel(formatTime(date))
-                        .font(.caption)
-                        .foregroundStyle(Color.primary.opacity(0.8))
+            // Dynamically adjust x-axis labels based on data timespan
+            let readingsTimespan = getReadingsTimespan()
+            
+            if readingsTimespan <= 24 * 60 * 60 { // Less than 1 day (show hourly marks)
+                AxisMarks(values: .stride(by: .hour, count: 3)) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                        .foregroundStyle(Color.secondary.opacity(0.3))
+                    AxisTick(stroke: StrokeStyle(lineWidth: 1))
+                        .foregroundStyle(Color.secondary)
+                    if let date = value.as(Date.self) {
+                        AxisValueLabel(formatTime(date))
+                            .font(.caption)
+                            .foregroundStyle(Color.primary.opacity(0.8))
+                    }
+                }
+            } else if readingsTimespan <= 3 * 24 * 60 * 60 { // 1-3 days (show every 6 hours)
+                AxisMarks(values: .stride(by: .hour, count: 6)) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                        .foregroundStyle(Color.secondary.opacity(0.3))
+                    AxisTick(stroke: StrokeStyle(lineWidth: 1))
+                        .foregroundStyle(Color.secondary)
+                    if let date = value.as(Date.self) {
+                        AxisValueLabel(formatDayAndTime(date))
+                            .font(.caption)
+                            .foregroundStyle(Color.primary.opacity(0.8))
+                    }
+                }
+            } else { // More than 3 days (show daily marks)
+                AxisMarks(values: .stride(by: .day, count: 1)) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                        .foregroundStyle(Color.secondary.opacity(0.3))
+                    AxisTick(stroke: StrokeStyle(lineWidth: 1))
+                        .foregroundStyle(Color.secondary)
+                    if let date = value.as(Date.self) {
+                        AxisValueLabel(formatDay(date))
+                            .font(.caption)
+                            .foregroundStyle(Color.primary.opacity(0.8))
+                    }
                 }
             }
         }
@@ -612,6 +655,12 @@ struct EnhancedGlucoseChartView: View {
     private func formatDateTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, HH:mm"
+        return formatter.string(from: date)
+    }
+    
+    private func formatDayAndTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M/d HH:mm"
         return formatter.string(from: date)
     }
     

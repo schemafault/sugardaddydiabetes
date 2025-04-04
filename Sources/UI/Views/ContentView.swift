@@ -161,6 +161,30 @@ struct LoadingView: View {
 struct DashboardView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
+    @State private var dateFilter = 0 // 0 = Today, 1 = Last 3 Days, 2 = Last 7 Days, 3 = Last 30 Days, 4 = All
+    
+    var filteredReadings: [GlucoseReading] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        switch dateFilter {
+        case 0: // Today
+            return appState.glucoseHistory.filter { 
+                calendar.isDate($0.timestamp, inSameDayAs: today)
+            }
+        case 1: // Last 3 Days
+            let threeDaysAgo = calendar.date(byAdding: .day, value: -2, to: today)!
+            return appState.glucoseHistory.filter { $0.timestamp >= threeDaysAgo }
+        case 2: // Last 7 Days
+            let sevenDaysAgo = calendar.date(byAdding: .day, value: -6, to: today)!
+            return appState.glucoseHistory.filter { $0.timestamp >= sevenDaysAgo }
+        case 3: // Last 30 Days
+            let thirtyDaysAgo = calendar.date(byAdding: .day, value: -29, to: today)!
+            return appState.glucoseHistory.filter { $0.timestamp >= thirtyDaysAgo }
+        default: // All
+            return appState.glucoseHistory
+        }
+    }
     
     var body: some View {
         ScrollView {
@@ -169,8 +193,34 @@ struct DashboardView: View {
                     CurrentReadingView(reading: reading)
                 }
                 
-                if !appState.glucoseHistory.isEmpty {
-                    EnhancedGlucoseChartView(readings: appState.glucoseHistory)
+                // Date range picker
+                VStack(spacing: 8) {
+                    Picker("Date Range", selection: $dateFilter) {
+                        Text("Today").tag(0)
+                        Text("Last 3 Days").tag(1)
+                        Text("Last 7 Days").tag(2)
+                        Text("Last 30 Days").tag(3)
+                        Text("All Data").tag(4)
+                    }
+                    .pickerStyle(.segmented)
+                    
+                    // Display filter info
+                    HStack {
+                        Text(getDateRangeDescription())
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
+                        Text("Showing \(filteredReadings.count) readings")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal)
+                
+                if !filteredReadings.isEmpty {
+                    EnhancedGlucoseChartView(readings: filteredReadings)
                         .frame(minHeight: 350)
                         .padding()
                         .background(Material.ultraThinMaterial)
@@ -178,7 +228,7 @@ struct DashboardView: View {
                         .shadow(color: colorScheme == .dark ? .black.opacity(0.3) : .gray.opacity(0.1), radius: 5)
                 }
                 
-                StatisticsView(readings: appState.glucoseHistory)
+                StatisticsView(readings: filteredReadings)
                     .padding(.horizontal)
                 
                 // Advanced Analytics Cards
@@ -266,6 +316,28 @@ struct DashboardView: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func getDateRangeDescription() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        let today = Date()
+        
+        switch dateFilter {
+        case 0:
+            return "Today only"
+        case 1:
+            let start = Calendar.current.date(byAdding: .day, value: -2, to: Calendar.current.startOfDay(for: today))!
+            return "\(formatter.string(from: start)) - \(formatter.string(from: today))"
+        case 2:
+            let start = Calendar.current.date(byAdding: .day, value: -6, to: Calendar.current.startOfDay(for: today))!
+            return "\(formatter.string(from: start)) - \(formatter.string(from: today))"
+        case 3:
+            let start = Calendar.current.date(byAdding: .day, value: -29, to: Calendar.current.startOfDay(for: today))!
+            return "\(formatter.string(from: start)) - \(formatter.string(from: today))"
+        default:
+            return "All available data"
+        }
     }
     
     private func formatDate(_ date: Date) -> String {
