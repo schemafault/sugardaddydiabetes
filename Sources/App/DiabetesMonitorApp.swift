@@ -25,13 +25,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Activate the app properly
         NSApplication.shared.activate(ignoringOtherApps: true)
         
-        // Add additional window management configuration
-        NSApp.windows.forEach { window in
-            window.isMovableByWindowBackground = false
+        // Process events to ensure windows are created
+        NSApp.finishLaunching()
+        
+        // Make all windows visible
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // Ensure app is active
+            NSApp.activate(ignoringOtherApps: true)
             
-            // Ensure windows can become key window
-            if window.canBecomeKey {
-                window.makeKeyAndOrderFront(nil)
+            print("Window count at launch: \(NSApp.windows.count)")
+            
+            // Force all windows to appear
+            NSApp.windows.forEach { window in
+                window.isMovableByWindowBackground = false
+                
+                // Ensure windows can become key window and are visible
+                if window.canBecomeKey {
+                    print("Making window key and visible: \(window.title)")
+                    window.makeKeyAndOrderFront(nil)
+                }
             }
         }
         
@@ -300,15 +312,6 @@ struct DiabetesMonitorApp: App {
                 .environmentObject(appState)
                 .frame(minWidth: 800, minHeight: 600)
                 .onAppear {
-                    // Force main window to activate
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        NSApp.activate(ignoringOtherApps: true)
-                        
-                        for window in NSApp.windows where window.title.contains("Diabetes Monitor") {
-                            print("🪟 Forcing main window activation: \(window.title)")
-                            window.makeKeyAndOrderFront(nil)
-                        }
-                    }
                     // Set appState in AppDelegate
                     appDelegate.appState = appState
                     
@@ -321,11 +324,8 @@ struct DiabetesMonitorApp: App {
                     
                     print("🔐 Checking for existing credentials: \(hasCredentials ? "Found" : "Not found")")
                     
-                    // Configure NSWindow for better text field behavior with a slight delay
-                    // to ensure SwiftUI has time to create and render the windows
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        configureWindows()
-                    }
+                    // Configure NSWindow for better text field behavior
+                    configureWindows()
                     
                     // Show login window ONLY if there are no credentials
                     if !hasCredentials {
@@ -347,7 +347,6 @@ struct DiabetesMonitorApp: App {
         .defaultPosition(.center)
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
-        .windowToolbarStyle(.unified)
         .handlesExternalEvents(matching: Set(arrayLiteral: "diabetesmonitor"))
         .commands {
             // Hide the default "New Window" menu item
@@ -445,20 +444,13 @@ struct DiabetesMonitorApp: App {
     }
     
     private func configureWindows() {
+        // Make sure the application is visible and active
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+            
         DispatchQueue.main.async {
-            // Bring application to front first - force activation
+            // Bring application to front 
             NSApp.activate(ignoringOtherApps: true)
-            
-            // Log window count to debug
-            print("🪟 Window count: \(NSApplication.shared.windows.count)")
-            
-            // If no windows, create one (safety measure)
-            if NSApplication.shared.windows.isEmpty {
-                print("🪟 No windows found - forcing window creation")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-            }
             
             for window in NSApplication.shared.windows {
                 // Skip status bar windows which can't become key or main
@@ -468,12 +460,8 @@ struct DiabetesMonitorApp: App {
                     continue
                 }
                 
-                print("🪟 Found window: \(window.title), Class: \(NSStringFromClass(type(of: window)))")
-                
                 // Only apply style to regular windows
                 if window.styleMask.contains(.titled) {
-                    print("🪟 Configuring titled window: \(window.title)")
-                    
                     // Apply full standard window style mask with all controls and resizing
                     window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
                     
@@ -503,18 +491,20 @@ struct DiabetesMonitorApp: App {
                         window.delegate = delegate
                     }
                     
-                    // Ensure the window is visible and active
-                    window.makeKeyAndOrderFront(nil)
+                    // Only try to make key/main if the window can be key/main
+                    if window.canBecomeKey {
+                        window.makeKey()
+                    }
                     
-                    // Force activation of the app again
-                    NSApp.activate(ignoringOtherApps: true)
+                    if window.canBecomeMain {
+                        window.makeMain()
+                    }
                     
-                    print("🪟 Window activated: \(window.title)")
-                } else {
-                    print("🪟 Skipping non-titled window configuration")
-                }
-                
-                print("🪟 Configured window: \(window.title) with style mask: \(window.styleMask)")
+                    if window.canBecomeKey || window.canBecomeMain {
+                        window.orderFront(nil)
+                    }
+                    
+                    print("Configured window: \(window.title) with style mask: \(window.styleMask)")
                 }
             }
         }

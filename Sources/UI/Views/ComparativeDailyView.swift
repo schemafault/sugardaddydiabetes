@@ -14,12 +14,20 @@ struct ComparativeDailyView: View {
             .reduce(into: Set<Date>()) { $0.insert($1) }
             .sorted(by: >)
         
-        // Pre-select the two most recent days if no selection exists
-        if selectedDates.isEmpty && days.count >= 2 {
+        // Pre-select up to 3 most recent days if no selection exists
+        if selectedDates.isEmpty && !days.isEmpty {
             DispatchQueue.main.async {
+                // Always select today (most recent day)
                 selectedDates.insert(days[0])
+                
+                // Add yesterday if available
                 if days.count > 1 {
                     selectedDates.insert(days[1])
+                }
+                
+                // Add day before yesterday if available
+                if days.count > 2 {
+                    selectedDates.insert(days[2])
                 }
             }
         }
@@ -52,22 +60,34 @@ struct ComparativeDailyView: View {
     
     var body: some View {
         VStack(spacing: 16) {
-            HStack {
-                Text("Comparative Daily Analysis")
-                    .font(.headline)
-                
-                Spacer()
-                
-                // Simplified toggle to hide/show selections
-                Button {
-                    isEnabled.toggle()
-                } label: {
-                    Label(isEnabled ? "Hide Controls" : "Show Controls", 
-                          systemImage: isEnabled ? "chevron.up" : "chevron.down")
-                        .font(.caption)
+            VStack(spacing: 4) {
+                HStack {
+                    Text("Comparative Daily Analysis")
+                        .font(.headline)
+                    
+                    Spacer()
+                    
+                    // Simplified toggle to hide/show selections
+                    Button {
+                        isEnabled.toggle()
+                    } label: {
+                        Label(isEnabled ? "Hide Controls" : "Show Controls", 
+                              systemImage: isEnabled ? "chevron.up" : "chevron.down")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                
+                // Show the number of days available for analysis
+                if !allDays.isEmpty {
+                    HStack {
+                        Text("Available data: \(allDays.count) days (\(allDays.count >= 7 ? "7+" : "\(allDays.count)") for comparison)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                }
             }
             .padding(.horizontal)
             
@@ -75,19 +95,46 @@ struct ComparativeDailyView: View {
                 VStack(spacing: 12) {
                     // Day selection section if controls are enabled
                     if isEnabled {
-                        ScrollView(.horizontal, showsIndicators: false) {
+                        VStack(spacing: 8) {
+                            // Action buttons
                             HStack {
-                                ForEach(allDays.prefix(7), id: \.self) { day in
-                                    DaySelectionButton(
-                                        day: day,
-                                        isSelected: selectedDates.contains(day),
-                                        action: {
-                                            toggleDaySelection(day)
-                                        }
-                                    )
+                                Button(action: selectAllDays) {
+                                    Label("Select All", systemImage: "checkmark.circle")
+                                        .font(.caption)
                                 }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                
+                                Button(action: clearSelection) {
+                                    Label("Clear", systemImage: "xmark.circle")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                
+                                Spacer()
+                                
+                                Text("\(selectedDates.count) days selected")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
                             .padding(.horizontal)
+                            
+                            // Day selection buttons
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack {
+                                    ForEach(allDays.prefix(7), id: \.self) { day in
+                                        DaySelectionButton(
+                                            day: day,
+                                            isSelected: selectedDates.contains(day),
+                                            action: {
+                                                toggleDaySelection(day)
+                                            }
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal)
+                            }
                         }
                         .padding(.bottom, 8)
                     }
@@ -103,6 +150,14 @@ struct ComparativeDailyView: View {
                                         y: .value("Glucose", reading.displayValue)
                                     )
                                     .foregroundStyle(by: .value("Day", formatDayLabel(day)))
+                                    .lineStyle(StrokeStyle(lineWidth: 2.0))
+                                    .symbol {
+                                        // Add small symbols on the lines for better differentiation
+                                        Circle()
+                                            .fill(Color.white)
+                                            .frame(width: 6, height: 6)
+                                            .opacity(selectedDates.count > 4 ? 0 : 1) // Hide symbols when many lines for clarity
+                                    }
                                 }
                             }
                         }
@@ -145,10 +200,10 @@ struct ComparativeDailyView: View {
                     // Add explicit plot area insets to make room for the left labels
                     .chartPlotStyle { content in
                         content
-                            .frame(height: 250)
+                            .frame(height: 280)
                             .padding(.leading, 40) // Important: This creates space for the annotations
                     }
-                    .frame(height: 250)
+                    .frame(height: 280)
                     .padding(.vertical, 12)
                 }
             } else {
@@ -165,8 +220,8 @@ struct ComparativeDailyView: View {
         } else {
             selectedDates.insert(day)
             
-            // Limit to maximum 5 days for better readability
-            if selectedDates.count > 5 {
+            // Limit to maximum 7 days for readability
+            if selectedDates.count > 7 {
                 selectedDates.remove(selectedDates.sorted().first!)
             }
         }
@@ -209,6 +264,20 @@ struct ComparativeDailyView: View {
         // Add padding
         let padding = (max - min) * 0.2
         return (min - padding)...(max + padding)
+    }
+    
+    // Select all 7 days
+    private func selectAllDays() {
+        selectedDates.removeAll()
+        // Add up to 7 most recent days
+        for day in allDays.prefix(7) {
+            selectedDates.insert(day)
+        }
+    }
+    
+    // Clear selection
+    private func clearSelection() {
+        selectedDates.removeAll()
     }
 }
 
