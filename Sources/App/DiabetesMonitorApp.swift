@@ -6,8 +6,78 @@ import Security // Required for keychain access
 class AppDelegate: NSObject, NSApplicationDelegate {
     var appState: AppState?
     var updateTimer: Timer?
+    var menuBarCleanupTimer: Timer? // Timer for menu bar cleanup
+    
+    // Add property to track recently closed windows
+    private var recentlyClosedWindows = Set<String>()
+    private var lastCleanupTime: Date = Date()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // CRITICAL FIX: Check for and terminate other instances of the app to prevent multiple menu bar icons
+        let runningApps = NSWorkspace.shared.runningApplications
+        let bundleID = Bundle.main.bundleIdentifier ?? ""
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        print("🔍 Current app process identifier: \(currentPID)")
+        print("🔍 Current app bundle ID: \(bundleID)")
+        
+        // Log existing menu bar windows before any changes
+        print("🔍 DEBUG: Menu bar windows at app launch:")
+        let menuBarWindows = NSApp.windows.filter { window in
+            let windowClass = NSStringFromClass(type(of: window))
+            return windowClass.contains("MenuBarExtra") || windowClass.contains("StatusBar")
+        }
+        print("🔢 Found \(menuBarWindows.count) menu bar windows at launch")
+        menuBarWindows.forEach { window in
+            let windowClass = NSStringFromClass(type(of: window))
+            print("  - Title: \(window.title), Class: \(windowClass)")
+        }
+        
+        let matchingApps = runningApps.filter { 
+            $0.bundleIdentifier == bundleID && $0.processIdentifier != currentPID 
+        }
+        
+        print("🔍 Found \(matchingApps.count) other instances of the app")
+        matchingApps.forEach { app in
+            print("  - PID: \(app.processIdentifier), isActive: \(app.isActive)")
+        }
+        
+        // CRITICAL FIX: Determine if this is the primary instance
+        let lowestOtherPID: UInt32 = matchingApps.map({ UInt32($0.processIdentifier) }).min() ?? UInt32.max
+        let isPrimary = matchingApps.isEmpty || UInt32(currentPID) < lowestOtherPID
+        
+        if !isPrimary {
+            print("⚠️ This is NOT the primary instance. Terminating self to prevent multiple menu bar icons.")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                NSApplication.shared.terminate(nil)
+            }
+            return
+        }
+        
+        print("✅ This is the primary instance. Continuing startup.")
+        
+        // If there are other instances running, terminate them
+        for app in matchingApps {
+            print("🔍 Terminating other instance with PID: \(app.processIdentifier)")
+            app.terminate()
+        }
+        
+        // IMPORTANT: Set up distributed notification to detect and handle multiple launches
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleAppLaunch),
+            name: NSNotification.Name("com.macsugardaddy.diabetesmonitor.launched"),
+            object: nil
+        )
+        
+        // Notify that this instance has launched
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            print("🔍 Broadcasting app launch notification")
+            DistributedNotificationCenter.default().post(
+                name: NSNotification.Name("com.macsugardaddy.diabetesmonitor.launched"),
+                object: String(ProcessInfo.processInfo.processIdentifier)
+            )
+        }
+        
         // Initialize CoreData with programmatic model
         _ = ProgrammaticCoreDataManager.shared
         
@@ -66,6 +136,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // ... existing code ...
             }
         }
+        
+        // Set up a timer to periodically check for and clean up duplicate menu bar items
+        setupMenuBarCleanupTimer()
     }
     
     @objc func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
@@ -195,9 +268,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    func applicationWillTerminate(_ aNotification: Notification) {
-        // Stop timer
+    func applicationWillTerminate(_ notification: Notification) {
+        print("🔚 Application will terminate - PID: \(ProcessInfo.processInfo.processIdentifier)")
+        // Clean up any resources
         updateTimer?.invalidate()
+        menuBarCleanupTimer?.invalidate() // Invalidate the menu bar cleanup timer
+        
+        // Log menu bar windows before termination
+        let menuBarWindows = NSApp.windows.filter { window in
+            let windowClass = NSStringFromClass(type(of: window))
+            return windowClass.contains("MenuBarExtra") || windowClass.contains("StatusBar")
+        }
+        print("🔢 Found \(menuBarWindows.count) menu bar windows on termination")
         
         // Ensure CoreData is saved on exit
         ProgrammaticCoreDataManager.shared.saveContext()
@@ -292,6 +374,144 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Show the window
         windowController.showWindow(nil)
         windowController.window?.makeKeyAndOrderFront(nil)
+    }
+    
+    @objc private func handleAppLaunch(_ notification: Notification) {
+        // Check if this is a notification from our own process
+        if let senderPID = notification.object as? String,
+           senderPID != String(ProcessInfo.processInfo.processIdentifier) {
+            print("🔍 Received launch notification from another instance (PID: \(senderPID))")
+            
+            // This is a newer instance, so terminate this one
+            if let otherPID = Int(senderPID), otherPID > ProcessInfo.processInfo.processIdentifier {
+                print("🔍 Other instance has higher PID, terminating self")
+                NSApplication.shared.terminate(nil)
+            } else {
+                print("🔍 This instance has higher PID, continuing")
+            }
+        }
+    }
+    
+    @MainActor
+    func cleanupDuplicateMenuBarItems() {
+        print("🧹 AppDelegate checking for duplicate menu bar items...")
+        
+        // Reset recently closed windows if it's been a while since last cleanup
+        let now = Date()
+        if now.timeIntervalSince(lastCleanupTime) > 5.0 {
+            recentlyClosedWindows.removeAll()
+        }
+        lastCleanupTime = now
+        
+        // First get status items (the actual menu bar icons)
+        let statusItems = NSApp.windows.filter { window in
+            NSStringFromClass(type(of: window)).contains("StatusBarWindow") ||
+            NSStringFromClass(type(of: window)).contains("StatusItem")
+        }
+        
+        // Then get menu windows (the dropdown menus)
+        let menuWindows = NSApp.windows.filter { window in
+            NSStringFromClass(type(of: window)).contains("MenuBarExtra") ||
+            NSStringFromClass(type(of: window)).contains("MenuBar")
+        }
+        
+        print("🧹 Found \(statusItems.count) status items and \(menuWindows.count) menu windows")
+        
+        // Access showMenuBar directly from the DiabetesMonitorApp instance if possible
+        guard let appState = appState else {
+            print("⚠️ AppState not available - cannot determine if menu bar should be shown")
+            return
+        }
+        
+        // Skip cleanup if a menu window is currently visible to prevent closing active menus
+        let visibleMenuWindows = menuWindows.filter { $0.isVisible }
+        if visibleMenuWindows.count > 0 {
+            print("🧹 Skipping cleanup - menu is currently visible")
+            return
+        }
+        
+        // If we're closing a menu bar that was just opened, it will cause the immediate closing issue
+        // Add a check to prevent closing windows that were just created
+        if statusItems.count == 2 {
+            // Get window identifiers
+            let windowIds = statusItems.map { NSStringFromClass(type(of: $0)) + String(describing: $0.hashValue) }
+            
+            // Check if we've closed these windows recently
+            let alreadyClosed = windowIds.allSatisfy { recentlyClosedWindows.contains($0) }
+            if alreadyClosed {
+                print("🧹 Skipping cleanup - these windows were recently processed")
+                return
+            }
+        }
+        
+        // Check if showMenuBar is true (using the property from the App instance)
+        if !appState.showMenuBar {
+            // If we shouldn't show the menu bar at all, close all status items except one to avoid app crash
+            print("🧹 We should not show any menu bar - hiding all status items")
+            
+            // Must keep at least one status item to avoid app crash, but make it invisible
+            if let firstItem = statusItems.first, statusItems.count > 0 {
+                firstItem.alphaValue = 0.0
+                print("🧹 Made first status item invisible instead of closing it")
+                
+                // Close any additional status items
+                for window in statusItems.dropFirst() {
+                    let windowId = NSStringFromClass(type(of: window)) + String(describing: window.hashValue)
+                    if !recentlyClosedWindows.contains(windowId) {
+                        print("🧹 Closing extra status item: \(window)")
+                        recentlyClosedWindows.insert(windowId)
+                        window.close()
+                    }
+                }
+            }
+            
+            // Close all menu windows
+            for window in menuWindows {
+                let windowId = NSStringFromClass(type(of: window)) + String(describing: window.hashValue)
+                if !recentlyClosedWindows.contains(windowId) {
+                    print("🧹 Closing menu window: \(window)")
+                    recentlyClosedWindows.insert(windowId)
+                    window.close()
+                }
+            }
+        } else if statusItems.count > 1 {
+            // If there are duplicate status items, keep only one visible
+            print("🧹 Found \(statusItems.count) status items - keeping only one")
+            
+            // Make the first item visible
+            if let firstItem = statusItems.first {
+                firstItem.alphaValue = 1.0
+            }
+            
+            // Close extras 
+            for window in statusItems.dropFirst() {
+                let windowId = NSStringFromClass(type(of: window)) + String(describing: window.hashValue)
+                if !recentlyClosedWindows.contains(windowId) {
+                    print("🧹 Closing duplicate status item: \(window)")
+                    recentlyClosedWindows.insert(windowId)
+                    window.close()
+                }
+            }
+            
+            // Don't close any menu windows - they'll be managed by the system
+        } else {
+            // Ensure the status item is visible
+            if let firstItem = statusItems.first {
+                firstItem.alphaValue = 1.0
+            }
+            
+            print("✅ Menu bar state is good: \(statusItems.count) status item(s) and shouldShowMenuBar=\(appState.showMenuBar)")
+        }
+    }
+    
+    @MainActor
+    func setupMenuBarCleanupTimer() {
+        // Check for duplicate menu bar items every 20 seconds
+        menuBarCleanupTimer = Timer.scheduledTimer(withTimeInterval: 20.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.cleanupDuplicateMenuBarItems()
+            }
+        }
     }
 }
 
@@ -520,6 +740,18 @@ struct DiabetesMonitorApp: App {
                     // Configure windows without excessive activation
                     configureWindows()
                     
+                    // Set show menu bar based on primary instance check
+                    if self.isPrimaryInstance() {
+                        appState.showMenuBar = true
+                        print("🔍 This is the primary instance - showing menu bar")
+                        
+                        // Clean up any duplicate menu bar items
+                        appDelegate.cleanupDuplicateMenuBarItems()
+                    } else {
+                        appState.showMenuBar = false
+                        print("🔍 This is a secondary instance - hiding menu bar")
+                    }
+                    
                     // Show login window ONLY if there are no credentials
                     if !hasCredentials {
                         print("📱 No credentials found - showing login window")
@@ -549,21 +781,52 @@ struct DiabetesMonitorApp: App {
             CommandGroup(replacing: .newItem) {}
         }
         
-        // CRITICAL FIX: Use simpler menu bar implementation to prevent crashes
-        MenuBarExtra {
+        // CRITICAL FIX: Create MenuBarExtra with isInserted binding to better handle multiple instances
+        MenuBarExtra(isInserted: .constant(true)) {
             MenuBarView()
                 .environmentObject(appState)
                 .frame(maxWidth: 300)
                 .onAppear {
                     print("📊 Menu bar view appeared")
+                    
+                    // Log all available windows for debugging
+                    print("🔍 DEBUG: All windows after menu bar appear:")
+                    NSApp.windows.enumerated().forEach { index, window in
+                        let windowClass = NSStringFromClass(type(of: window))
+                        print("  \(index): \(window.title) - Class: \(windowClass)")
+                    }
+                    
+                    // Count menu bar extras
+                    let menuBarCount = NSApp.windows.filter { window in
+                        let windowClass = NSStringFromClass(type(of: window))
+                        return windowClass.contains("MenuBarExtra") || windowClass.contains("StatusBar")
+                    }.count
+                    
+                    print("🔢 DEBUG: Found \(menuBarCount) menu bar windows")
+                    
+                    // Introduce a longer delay for Xcode runs to ensure proper cleanup
+                    // Only perform cleanup after a delay to allow for scene setup
+                    let delay: TimeInterval = ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"]?.contains("com.apple.dt.Xcode") ?? false ? 2.0 : 0.5
+                    print("⏱️ Using cleanup delay of \(delay) seconds")
+                    
+                    // If more than one or shouldn't show menu bar, close this one
+                    if menuBarCount > 1 || !appState.showMenuBar {
+                        // Defer cleanup to ensure window is fully created
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                            print("⏱️ Performing cleanup after delay")
+                            appDelegate.cleanupDuplicateMenuBarItems()
+                        }
+                    }
                 }
         } label: {
             Image(systemName: "heart.fill")
                 .imageScale(.medium)
                 .foregroundColor(.red)
+                .onAppear {
+                    print("❤️ Menu bar icon appeared")
+                }
         }
-        // Use menu instead of window style for better stability
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
     }
     
     private func showNativeLoginWindow() {
@@ -701,6 +964,35 @@ struct DiabetesMonitorApp: App {
             } else {
                 print("✅ SwiftUI-managed windows found, skipping manual window creation")
             }
+        }
+    }
+    
+    // Helper method to determine if this is the primary app instance
+    private func isPrimaryInstance() -> Bool {
+        let runningApps = NSWorkspace.shared.runningApplications
+        let bundleID = Bundle.main.bundleIdentifier ?? ""
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        
+        print("🔍 DEBUG isPrimaryInstance: Checking PID \(myPID) with bundle \(bundleID)")
+        
+        // Find all instances of our app
+        let matchingApps = runningApps.filter { $0.bundleIdentifier == bundleID }
+        
+        print("🔍 DEBUG isPrimaryInstance: Found \(matchingApps.count) matching apps")
+        matchingApps.forEach { app in
+            print("  - PID: \(app.processIdentifier), isActive: \(app.isActive)")
+        }
+        
+        // This is primary if it's the only instance or has the lowest PID
+        if matchingApps.count <= 1 {
+            print("✅ DEBUG isPrimaryInstance: Only one instance found - this is primary")
+            return true
+        } else {
+            // Find the app with the lowest PID
+            let lowestPID: UInt32 = matchingApps.map { UInt32($0.processIdentifier) }.min() ?? UInt32.max
+            let isPrimary = UInt32(myPID) == lowestPID
+            print("\(isPrimary ? "✅" : "❌") DEBUG isPrimaryInstance: Multiple instances found - this \(isPrimary ? "IS" : "is NOT") primary (PID \(myPID) vs lowest \(lowestPID))")
+            return isPrimary
         }
     }
 }
@@ -994,6 +1286,9 @@ class AppState: ObservableObject {
     
     // Always use real API data, never test data
     private let useTestData = false
+    
+    // Property to track if menu bar should be shown
+    @Published var showMenuBar: Bool = true
     
     init() {
         // Initialize coreDataManager first

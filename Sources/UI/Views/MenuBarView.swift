@@ -1,33 +1,104 @@
 import SwiftUI
+import AppKit
+
+// Custom NSViewRepresentable for a click-to-hold view
+struct TapToHoldView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // No updates needed
+    }
+}
 
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
     
+    // Add an ID for tracking instances
+    private let instanceID = UUID()
+    
+    // Add state to track if cleanup has been performed
+    @State private var hasPerformedCleanup = false
+    
+    init() {
+        print("🍔 MenuBarView initialized with instance ID: \(UUID().uuidString)")
+    }
+    
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with current reading
-            if let reading = appState.currentGlucoseReading {
-                currentReadingHeader(reading)
-            } else {
-                noDataHeader()
+        ZStack {
+            VStack(spacing: 0) {
+                // Header with current reading
+                if let reading = appState.currentGlucoseReading {
+                    currentReadingHeader(reading)
+                } else {
+                    noDataHeader()
+                }
+                
+                Divider()
+                    .padding(.vertical, 1)
+                
+                // Menu items
+                menuItems
+                
+                Divider()
+                    .padding(.vertical, 1)
+                
+                // Footer
+                footerView
             }
             
-            Divider()
-                .padding(.vertical, 1)
-            
-            // Menu items
-            menuItems
-            
-            Divider()
-                .padding(.vertical, 1)
-            
-            // Footer
-            footerView
+            // Invisible view on top that helps prevent accidental dismissal
+            TapToHoldView()
+                .allowsHitTesting(false)
         }
         .frame(width: 280)
         .background(menuBackground)
+        .edgesIgnoringSafeArea(.all)
+        // Catch all clicks within the menu to prevent menu dismissal
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // This empty gesture handler prevents taps from closing the menu
+            print("🍔 Tap detected in menu - preventing propagation")
+        }
+        .onAppear {
+            print("🍔 MenuBarView appeared with instance ID: \(instanceID)")
+            
+            // Log all MenuBarView instances in the hierarchy
+            // Count similar windows to detect duplicates
+            let menuBarWindowCount = NSApp.windows.filter { window in
+                NSStringFromClass(type(of: window)).contains("MenuBarExtra") ||
+                NSStringFromClass(type(of: window)).contains("StatusBar")
+            }.count
+            
+            print("🍔 Found \(menuBarWindowCount) menu bar related windows")
+            
+            // Delay cleanup to ensure the menu is fully opened
+            if !hasPerformedCleanup {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    print("🍔 MenuBarView checking for duplicate windows after delay")
+                    let menuBarWindowCount = NSApp.windows.filter { window in
+                        NSStringFromClass(type(of: window)).contains("MenuBarExtra") ||
+                        NSStringFromClass(type(of: window)).contains("StatusBar")
+                    }.count
+                    
+                    print("🍔 Found \(menuBarWindowCount) menu bar related windows after delay")
+                    
+                    // Ensure menu windows stay open by modifying their behavior
+                    for window in NSApp.windows where NSStringFromClass(type(of: window)).contains("MenuBarExtra") {
+                        // Attempt to make the window more persistent
+                        window.isReleasedWhenClosed = false
+                        print("🍔 Configured menu window to be more persistent: \(window)")
+                    }
+                    
+                    hasPerformedCleanup = true
+                }
+            }
+        }
     }
     
     private var menuBackground: some View {
@@ -52,7 +123,6 @@ struct MenuBarView: View {
                 )
             }
         }
-        .ignoresSafeArea()
     }
     
     private func currentReadingHeader(_ reading: GlucoseReading) -> some View {
@@ -122,6 +192,7 @@ struct MenuBarView: View {
     private var menuItems: some View {
         VStack(spacing: 0) {
             MenuRowButton(title: "Open Dashboard", icon: "gauge") {
+                print("🍔 Dashboard button tapped")
                 NSApp.activate(ignoringOtherApps: true)
                 appState.selectedTab = 0
                 
