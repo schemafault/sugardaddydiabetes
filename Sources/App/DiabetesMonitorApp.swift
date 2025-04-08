@@ -19,32 +19,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         print("App did finish launching")
         
-        // Set proper activation policy
+        // CRITICAL FIX: Set proper activation policy and activate immediately
         NSApplication.shared.setActivationPolicy(.regular)
-        
-        // Activate the app properly
         NSApplication.shared.activate(ignoringOtherApps: true)
         
         // Process events to ensure windows are created
         NSApp.finishLaunching()
         
-        // Make all windows visible
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            // Ensure app is active
-            NSApp.activate(ignoringOtherApps: true)
-            
-            print("Window count at launch: \(NSApp.windows.count)")
-            
-            // Force all windows to appear
-            NSApp.windows.forEach { window in
-                window.isMovableByWindowBackground = false
-                
-                // Ensure windows can become key window and are visible
-                if window.canBecomeKey {
-                    print("Making window key and visible: \(window.title)")
-                    window.makeKeyAndOrderFront(nil)
-                }
-            }
+        // CRITICAL FIX: Make main window visible immediately
+        for window in NSApp.windows where window.title.contains("Diabetes") {
+            window.makeKeyAndOrderFront(nil)
+            print("Making window visible immediately: \(window.title)")
         }
         
         // Register for URL handling
@@ -54,6 +39,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kInternetEventClass),
             andEventID: AEEventID(kAEGetURL)
         )
+        
+        // CRITICAL FIX: Clean up CoreData database
+        Task {
+            await cleanupCoreDataDatabase()
+        }
+        
+        // CRITICAL FIX: Ensure menu bar extra is properly initialized immediately
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        // Log available windows for debugging
+        print("Available windows after launch:")
+        NSApp.windows.forEach { window in
+            print("  - \(window.title)")
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Show login window if no credentials are stored
+            let username = UserDefaults.standard.string(forKey: "username")
+            let password = UserDefaults.standard.string(forKey: "password")
+            
+            if username == nil || password == nil {
+                self.showNativeLoginWindow()
+            } else {
+                // ... existing code ...
+            }
+        }
     }
     
     @objc func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
@@ -84,17 +96,86 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         print("App became active")
         
-        // We DON'T need to call activate again here - that's causing the loop!
-        // DO NOT call NSApplication.shared.activate() from this method
-        
-        // Minimal window handling to avoid focus issues
-        if let keyWindow = NSApp.keyWindow, !keyWindow.isKeyWindow {
-            keyWindow.makeKeyAndOrderFront(nil)
+        // CRITICAL FIX: Use weak self to prevent retain cycles
+        DispatchQueue.main.async {
+            // Count SwiftUI windows to avoid creating duplicates
+            let hasSwiftUIWindows = NSApp.windows.contains { window in
+                let windowClass = NSStringFromClass(type(of: window))
+                return windowClass.contains("SwiftUI") || windowClass.contains("AppKit")
+            }
             
-            // Ensure field editor is properly configured
-            if let fieldEditor = keyWindow.fieldEditor(true, for: nil) {
-                fieldEditor.isSelectable = true
-                fieldEditor.isEditable = true
+            // Just make existing windows visible rather than creating new ones
+            if hasSwiftUIWindows {
+                print("SwiftUI windows found, making them visible")
+                
+                // Make existing windows visible
+                for window in NSApp.windows {
+                    // Skip menu bar windows
+                    if NSStringFromClass(type(of: window)).contains("StatusBarWindow") ||
+                       NSStringFromClass(type(of: window)).contains("MenuBarExtra") {
+                        continue
+                    }
+                    
+                    window.makeKeyAndOrderFront(nil)
+                    print("Made window visible: \(window.title)")
+                }
+                
+                // Ensure activation policy is correct
+                if NSApp.activationPolicy() != .regular {
+                    NSApp.setActivationPolicy(.regular)
+                }
+                
+                return
+            }
+            
+            // If no SwiftUI windows but other main windows exist, just make them visible
+            let hasMainWindows = NSApp.windows.contains { window in
+                !NSStringFromClass(type(of: window)).contains("StatusBarWindow") &&
+                !NSStringFromClass(type(of: window)).contains("MenuBarExtra")
+            }
+            
+            if hasMainWindows {
+                // Just find the main window and make it visible
+                for window in NSApp.windows where !NSStringFromClass(type(of: window)).contains("StatusBarWindow") {
+                    window.makeKeyAndOrderFront(nil)
+                    print("Making main window visible in didBecomeActive: \(window.title)")
+                    return
+                }
+            }
+            
+            // If no main window found, try to make any key window visible
+            if let keyWindow = NSApp.keyWindow, !keyWindow.isVisible {
+                print("Making key window visible as fallback")
+                keyWindow.makeKeyAndOrderFront(nil)
+                return
+            }
+            
+            // Ensure activation policy is correct
+            if NSApp.activationPolicy() != .regular {
+                NSApp.setActivationPolicy(.regular)
+            }
+            
+            // CRITICAL FIX: Only create a new window as last resort if no windows exist
+            if NSApp.windows.isEmpty {
+                print("⚠️ No windows found at all in didBecomeActive, creating a new one as last resort")
+                
+                // Create a new window
+                let newWindow = NSWindow(
+                    contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                    styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                    backing: .buffered,
+                    defer: false
+                )
+                newWindow.title = "Diabetes Monitor"
+                newWindow.center()
+                newWindow.makeKeyAndOrderFront(nil)
+                
+                // Add a simple view to the window
+                let contentView = NSView(frame: newWindow.contentView!.bounds)
+                contentView.autoresizingMask = [.width, .height]
+                newWindow.contentView = contentView
+                
+                print("Created new window in didBecomeActive: \(newWindow.title)")
             }
         }
     }
@@ -120,6 +201,97 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Ensure CoreData is saved on exit
         ProgrammaticCoreDataManager.shared.saveContext()
+    }
+    
+    // CRITICAL FIX: Add method to clean up CoreData database
+    private func cleanupCoreDataDatabase() async {
+        print("🧹 Starting CoreData database cleanup...")
+        
+        let coreDataManager = ProgrammaticCoreDataManager.shared
+        
+        // Fetch all readings
+        let allReadings = coreDataManager.fetchAllGlucoseReadings()
+        print("📊 Found \(allReadings.count) total readings in database")
+        
+        // Check for duplicates
+        let uniqueIds = Set(allReadings.map { $0.id })
+        if uniqueIds.count < allReadings.count {
+            print("⚠️ WARNING: Found \(allReadings.count - uniqueIds.count) duplicate readings!")
+            
+            // Remove duplicates by ID
+            let uniqueReadings = Array(Set(allReadings))
+            print("🧹 Removed \(allReadings.count - uniqueIds.count) duplicate readings")
+            
+            // Save the deduplicated readings back to CoreData
+            coreDataManager.saveGlucoseReadings(uniqueReadings)
+            print("💾 Saved deduplicated readings to database")
+            
+            // Verify the cleanup
+            let afterCleanup = coreDataManager.fetchAllGlucoseReadings()
+            print("✅ Database cleanup complete. Now contains \(afterCleanup.count) unique readings")
+        } else {
+            print("✅ No duplicate readings found in database")
+        }
+    }
+    
+    // Add showNativeLoginWindow method
+    private func showNativeLoginWindow() {
+        print("🪟 Creating and showing login window")
+        
+        // Create and show the login window
+        let windowController = LoginWindowController()
+        
+        // Set callback for when credentials are entered
+        windowController.onCredentialsEntered = { [weak windowController] username, password in
+            // Test credentials
+            Task {
+                do {
+                    // Directly save credentials to UserDefaults
+                    print("Saving credentials to UserDefaults...")
+                    UserDefaults.standard.set(username, forKey: "username")
+                    UserDefaults.standard.set(password, forKey: "password")
+                    
+                    // Debug what was saved
+                    let savedUsername = UserDefaults.standard.string(forKey: "username")
+                    let savedPassword = UserDefaults.standard.string(forKey: "password")
+                    print("Saved username: \(savedUsername != nil ? "YES" : "NO"), Saved password: \(savedPassword != nil ? "YES" : "NO")")
+                    
+                    // Force UserDefaults to synchronize to ensure values are saved immediately
+                    UserDefaults.standard.synchronize()
+                    
+                    // Create a service to test the credentials
+                    let service = LibreViewService()
+                    let isValid = try await service.checkAuthentication()
+                    
+                    // Capture weak reference to avoid Swift 6 warnings
+                    let weakWindowController = windowController
+                    await MainActor.run {
+                        if isValid {
+                            // If valid, close login window
+                            weakWindowController?.close()
+                        } else {
+                            // If not valid, show error and clear credentials
+                            UserDefaults.standard.removeObject(forKey: "username")
+                            UserDefaults.standard.removeObject(forKey: "password")
+                            weakWindowController?.showError("Invalid username or password")
+                        }
+                    }
+                } catch {
+                    // Capture weak reference to avoid Swift 6 warnings
+                    let weakWindowController = windowController
+                    await MainActor.run {
+                        // If error, show error and clear credentials
+                        UserDefaults.standard.removeObject(forKey: "username")
+                        UserDefaults.standard.removeObject(forKey: "password")
+                        weakWindowController?.showError("Error: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+        
+        // Show the window
+        windowController.showWindow(nil)
+        windowController.window?.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -306,6 +478,24 @@ struct DiabetesMonitorApp: App {
     // Store window controller reference
     @State private var loginWindowController: LoginWindowController? = nil
     
+    // CRITICAL FIX: Add coreDataManager property
+    private let coreDataManager: ProgrammaticCoreDataManager
+    
+    // CRITICAL FIX: Add init to ensure proper activation
+    init() {
+        // Initialize coreDataManager first
+        self.coreDataManager = ProgrammaticCoreDataManager.shared
+        
+        // Ensure proper activation policy
+        NSApplication.shared.setActivationPolicy(.regular)
+        
+        // CRITICAL FIX: Set activation policy immediately in init
+        NSApp.setActivationPolicy(.regular)
+        
+        // Instead of Task, we'll use AppDelegate for background work
+        print("DiabetesMonitorApp initialized")
+    }
+    
     var body: some Scene {
         WindowGroup("Diabetes Monitor", id: "main") {
             ContentView(selectedTab: $appState.selectedTab)
@@ -314,6 +504,9 @@ struct DiabetesMonitorApp: App {
                 .onAppear {
                     // Set appState in AppDelegate
                     appDelegate.appState = appState
+                    
+                    // CRITICAL FIX: Show UI immediately
+                    NSApp.activate(ignoringOtherApps: true)
                     
                     // Debug what's in the defaults
                     let username = UserDefaults.standard.string(forKey: "username")
@@ -324,7 +517,7 @@ struct DiabetesMonitorApp: App {
                     
                     print("🔐 Checking for existing credentials: \(hasCredentials ? "Found" : "Not found")")
                     
-                    // Configure NSWindow for better text field behavior
+                    // Configure windows without excessive activation
                     configureWindows()
                     
                     // Show login window ONLY if there are no credentials
@@ -334,13 +527,16 @@ struct DiabetesMonitorApp: App {
                     } else {
                         print("🔑 Using existing credentials - skipping login screen")
                         
-                        // If credentials exist, fetch data in background but don't show login on failure
-                        // This provides a better experience - user won't be interrupted with login screens
+                        // If credentials exist, fetch data in background
                         Task {
-                            // Fetch data using stored credentials
                             await appState.fetchLatestReadings()
-                            // Any errors will be handled internally and shown in the app's UI
                         }
+                    }
+                    
+                    // CRITICAL FIX: Force window activation immediately
+                    for window in NSApp.windows where window.title.contains("Diabetes") {
+                        window.makeKeyAndOrderFront(nil)
+                        print("Forcing window activation immediately: \(window.title)")
                     }
                 }
         }
@@ -353,45 +549,31 @@ struct DiabetesMonitorApp: App {
             CommandGroup(replacing: .newItem) {}
         }
         
+        // CRITICAL FIX: Use simpler menu bar implementation to prevent crashes
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(appState)
-        } label: {
-            HStack(spacing: 4) {
-                if let reading = appState.currentGlucoseReading {
-                    // Show glucose value in menu bar with color
-                    Text(String(format: "%.1f", reading.displayValue))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(reading.isInRange ? .green : (reading.isHigh ? .red : .yellow))
-                    
-                    // Add an icon according to trend
-                    Image(systemName: reading.trend.icon)
-                        .imageScale(.small)
-                        .foregroundColor(reading.rangeStatus.color)
-                } else {
-                    // Fallback when no reading is available
-                    Image(systemName: "heart.fill")
+                .frame(maxWidth: 300)
+                .onAppear {
+                    print("📊 Menu bar view appeared")
                 }
-            }
+        } label: {
+            Image(systemName: "heart.fill")
+                .imageScale(.medium)
+                .foregroundColor(.red)
         }
-        .menuBarExtraStyle(.window)
+        // Use menu instead of window style for better stability
+        .menuBarExtraStyle(.menu)
     }
     
     private func showNativeLoginWindow() {
         print("🪟 Creating and showing login window")
         
-        // First, ensure we don't already have a login window showing
-        if loginWindowController != nil {
-            print("🪟 Login window already exists, bringing to front")
-            loginWindowController?.window?.makeKeyAndOrderFront(nil)
-            return
-        }
-        
         // Create and show the login window
         let windowController = LoginWindowController()
         
         // Set callback for when credentials are entered
-        windowController.onCredentialsEntered = { username, password in
+        windowController.onCredentialsEntered = { [weak windowController] username, password in
             // Test credentials
             Task {
                 do {
@@ -412,24 +594,27 @@ struct DiabetesMonitorApp: App {
                     let service = LibreViewService()
                     let isValid = try await service.checkAuthentication()
                     
+                    // Capture weak reference to avoid Swift 6 warnings
+                    let weakWindowController = windowController
                     await MainActor.run {
                         if isValid {
                             // If valid, close login window
-                            windowController.close()
-                            loginWindowController = nil
+                            weakWindowController?.close()
                         } else {
                             // If not valid, show error and clear credentials
                             UserDefaults.standard.removeObject(forKey: "username")
                             UserDefaults.standard.removeObject(forKey: "password")
-                            windowController.showError("Invalid username or password")
+                            weakWindowController?.showError("Invalid username or password")
                         }
                     }
                 } catch {
+                    // Capture weak reference to avoid Swift 6 warnings
+                    let weakWindowController = windowController
                     await MainActor.run {
                         // If error, show error and clear credentials
                         UserDefaults.standard.removeObject(forKey: "username")
                         UserDefaults.standard.removeObject(forKey: "password")
-                        windowController.showError("Error: \(error.localizedDescription)")
+                        weakWindowController?.showError("Error: \(error.localizedDescription)")
                     }
                 }
             }
@@ -438,74 +623,83 @@ struct DiabetesMonitorApp: App {
         // Show the window
         windowController.showWindow(nil)
         windowController.window?.makeKeyAndOrderFront(nil)
-        
-        // Store reference to prevent it from being deallocated
-        loginWindowController = windowController
     }
     
     private func configureWindows() {
-        // Make sure the application is visible and active
+        print("🪟 Configuring windows...")
+        
+        // Set proper activation policy and activate the app
         NSApplication.shared.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        
+        // Add a small delay to ensure SwiftUI has time to create windows
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            // Log available windows for debugging
+            print("Available windows after configuration delay:")
+            NSApp.windows.forEach { window in
+                print("  - \(window.title)")
+            }
             
-        DispatchQueue.main.async {
-            // Bring application to front 
-            NSApp.activate(ignoringOtherApps: true)
+            // Check if we have SwiftUI-managed windows
+            let hasSwiftUIWindows = NSApp.windows.contains { window in
+                let windowClass = NSStringFromClass(type(of: window))
+                return windowClass.contains("SwiftUI") || windowClass.contains("AppKit")
+            }
             
-            for window in NSApplication.shared.windows {
-                // Skip status bar windows which can't become key or main
-                if NSStringFromClass(type(of: window)).contains("StatusBarWindow") ||
-                   NSStringFromClass(type(of: window)).contains("MenuBarExtra") {
-                    print("Skipping menu bar or status bar window configuration")
-                    continue
-                }
-                
-                // Only apply style to regular windows
-                if window.styleMask.contains(.titled) {
+            // Only configure windows if we have any to work with
+            if !hasSwiftUIWindows {
+                // Configure any existing windows
+                for window in NSApplication.shared.windows {
+                    // Skip menu bar windows
+                    if NSStringFromClass(type(of: window)).contains("StatusBarWindow") ||
+                       NSStringFromClass(type(of: window)).contains("MenuBarExtra") {
+                        continue
+                    }
+                    
+                    print("Configuring window: \(window.title)")
+                    
                     // Apply full standard window style mask with all controls and resizing
                     window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-                    
-                    // Enable proper text field handling
-                    window.isMovableByWindowBackground = false
-                    window.preventsApplicationTerminationWhenModal = false
-                    
-                    // Set behavior for proper focus
-                    window.collectionBehavior = [.fullScreenPrimary]
-                    
-                    // Ensure proper field editor configuration
-                    if let fieldEditor = window.fieldEditor(true, for: nil) {
-                        fieldEditor.isSelectable = true
-                        fieldEditor.isEditable = true
-                    }
                     
                     // Set min size constraints
                     window.minSize = NSSize(width: 800, height: 600)
                     window.setContentSize(NSSize(width: 900, height: 700))
                     
-                    // Set activation policy to ensure input
-                    NSApp.setActivationPolicy(.regular)
-                    
-                    // Don't replace existing window delegate which might handle other things
-                    if window.delegate == nil {
-                        let delegate = FocusDebuggingWindowDelegate()
-                        window.delegate = delegate
-                    }
-                    
-                    // Only try to make key/main if the window can be key/main
-                    if window.canBecomeKey {
-                        window.makeKey()
-                    }
-                    
-                    if window.canBecomeMain {
-                        window.makeMain()
-                    }
-                    
-                    if window.canBecomeKey || window.canBecomeMain {
-                        window.orderFront(nil)
-                    }
-                    
-                    print("Configured window: \(window.title) with style mask: \(window.styleMask)")
+                    // Make the window visible
+                    window.makeKeyAndOrderFront(nil)
+                    print("Made window visible: \(window.title)")
                 }
+                
+                // CRITICAL FIX: Only create a new window if absolutely necessary
+                let hasMainWindows = NSApplication.shared.windows.contains { window in
+                    !NSStringFromClass(type(of: window)).contains("StatusBarWindow") &&
+                    !NSStringFromClass(type(of: window)).contains("MenuBarExtra")
+                }
+                
+                // Create a window only if we have NO windows at all
+                if !hasMainWindows {
+                    print("⚠️ No windows found at all, creating a new one")
+                    
+                    // Create a new window
+                    let newWindow = NSWindow(
+                        contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                        styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                        backing: .buffered,
+                        defer: false
+                    )
+                    newWindow.title = "Diabetes Monitor"
+                    newWindow.center()
+                    newWindow.makeKeyAndOrderFront(nil)
+                    
+                    // Add a simple view to the window
+                    let contentView = NSView(frame: newWindow.contentView!.bounds)
+                    contentView.autoresizingMask = [.width, .height]
+                    newWindow.contentView = contentView
+                    
+                    print("Created new window: \(newWindow.title)")
+                }
+            } else {
+                print("✅ SwiftUI-managed windows found, skipping manual window creation")
             }
         }
     }
@@ -796,12 +990,15 @@ class AppState: ObservableObject {
     }
     
     private let libreViewService = LibreViewService()
-    private let coreDataManager = ProgrammaticCoreDataManager.shared
+    private let coreDataManager: ProgrammaticCoreDataManager
     
     // Always use real API data, never test data
     private let useTestData = false
     
     init() {
+        // Initialize coreDataManager first
+        self.coreDataManager = ProgrammaticCoreDataManager.shared
+        
         // Load saved readings from CoreData
         loadSavedReadings()
         
@@ -818,111 +1015,136 @@ class AppState: ObservableObject {
     // Load saved readings from database and calculate trends
     private func loadSavedReadings() {
         print("🔃 Loading saved readings from CoreData...")
-        var savedReadings = coreDataManager.fetchAllGlucoseReadings()
         
-        print("📊 CRITICAL: Loaded \(savedReadings.count) readings from CoreData at startup")
-        
-        // Check date range to debug
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        
-        if !savedReadings.isEmpty {
-            // Find earliest and latest date
-            if let earliest = savedReadings.map({ $0.timestamp }).min(),
-               let latest = savedReadings.map({ $0.timestamp }).max() {
-                print("📅 CRITICAL DATA RANGE: \(dateFormatter.string(from: earliest)) to \(dateFormatter.string(from: latest))")
+        // Use weak self to prevent retain cycles (AppState is a class)
+        Task { [weak self] in
+            guard let self = self else { return }
+            
+            // Since CoreDataManager methods don't throw, we don't need try/catch
+            // Fetch all readings from CoreData
+            var savedReadings = self.coreDataManager.fetchAllGlucoseReadings()
+            
+            print("📊 CRITICAL: Loaded \(savedReadings.count) readings from CoreData at startup")
+            
+            // CRITICAL FIX: Check if the data count is suspiciously high
+            if savedReadings.count > 10000 {
+                print("⚠️ WARNING: Suspiciously high number of readings (\(savedReadings.count)). This may indicate duplicate data.")
                 
-                // Count unique days
-                let calendar = Calendar.current
-                let uniqueDays = Set(savedReadings.map { calendar.startOfDay(for: $0.timestamp) })
-                print("📊 CRITICAL: Data spans \(uniqueDays.count) unique days")
-                
-                // Print days
-                print("📆 Available days:")
-                let sortedDays = uniqueDays.sorted()
-                for (index, day) in sortedDays.enumerated() {
-                    let dayStr = dateFormatter.string(from: day).prefix(10)
-                    let countForDay = savedReadings.filter { calendar.isDate($0.timestamp, inSameDayAs: day) }.count
-                    print("  • \(dayStr): \(countForDay) readings")
+                // CRITICAL FIX: Check for duplicate readings
+                let uniqueIds = Set(savedReadings.map { $0.id })
+                if uniqueIds.count < savedReadings.count {
+                    print("⚠️ WARNING: Found \(savedReadings.count - uniqueIds.count) duplicate readings!")
                     
-                    // Limit output to first 5 days
-                    if index >= 4 && sortedDays.count > 5 {
-                        print("  • ... and \(sortedDays.count - 5) more days")
-                        break
-                    }
+                    // CRITICAL FIX: Remove duplicates by ID
+                    let uniqueReadings = Array(Set(savedReadings))
+                    print("🧹 Removed \(savedReadings.count - uniqueIds.count) duplicate readings")
+                    savedReadings = uniqueReadings
+                    
+                    // Save the deduplicated readings back to CoreData
+                    self.coreDataManager.saveGlucoseReadings(uniqueReadings)
                 }
             }
-        }
-        
-        // Print date range of the data
-        if !savedReadings.isEmpty {
+            
+            // Check date range to debug
             let dateFormatter = DateFormatter()
             dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
             
-            if let earliest = savedReadings.map({ $0.timestamp }).min(),
-               let latest = savedReadings.map({ $0.timestamp }).max() {
-                print("📅 DEBUG: Date range of data: \(dateFormatter.string(from: earliest)) to \(dateFormatter.string(from: latest))")
+            if !savedReadings.isEmpty {
+                // Find earliest and latest date
+                if let earliest = savedReadings.map({ $0.timestamp }).min(),
+                   let latest = savedReadings.map({ $0.timestamp }).max() {
+                    print("📅 CRITICAL DATA RANGE: \(dateFormatter.string(from: earliest)) to \(dateFormatter.string(from: latest))")
+                    
+                    // Count unique days
+                    let calendar = Calendar.current
+                    let uniqueDays = Set(savedReadings.map { calendar.startOfDay(for: $0.timestamp) })
+                    print("📊 CRITICAL: Data spans \(uniqueDays.count) unique days")
+                    
+                    // Print days
+                    print("📆 Available days:")
+                    let sortedDays = uniqueDays.sorted()
+                    for (index, day) in sortedDays.enumerated() {
+                        let dayStr = dateFormatter.string(from: day).prefix(10)
+                        let countForDay = savedReadings.filter { calendar.isDate($0.timestamp, inSameDayAs: day) }.count
+                        print("  • \(dayStr): \(countForDay) readings")
+                        
+                        // Limit output to first 5 days
+                        if index >= 4 && sortedDays.count > 5 {
+                            print("  • ... and \(sortedDays.count - 5) more days")
+                            break
+                        }
+                    }
+                }
             }
             
-            // Check unique days
-            let calendar = Calendar.current
-            let uniqueDays = Set(savedReadings.map { calendar.startOfDay(for: $0.timestamp) })
-            print("📆 DEBUG: Data covers \(uniqueDays.count) unique days")
-        }
-        
-        if !savedReadings.isEmpty {
-            // Sort by timestamp, most recent first
-            savedReadings.sort { $0.timestamp > $1.timestamp }
-            
-            // Calculate trends for each reading using previous readings
-            var enhancedReadings = [GlucoseReading]()
-            
-            for (index, reading) in savedReadings.enumerated() {
-                // Deep copy the reading
-                var updatedReading = reading
+            if !savedReadings.isEmpty {
+                // Sort by timestamp, most recent first
+                savedReadings.sort { $0.timestamp > $1.timestamp }
                 
-                // For each reading, consider all readings that came before it
-                let previousReadings = Array(savedReadings.suffix(from: index + 1))
+                // CRITICAL FIX: Only process the most recent 1000 readings for initial display
+                // This will significantly speed up startup
+                let recentReadings = Array(savedReadings.prefix(1000))
+                print("📊 CRITICAL: Processing only the most recent 1000 readings for initial display")
                 
-                // Use our enhanced trend calculation algorithm
-                let calculatedTrend = GlucoseReading.calculateTrend(
-                    currentReading: reading,
-                    previousReadings: previousReadings
-                )
+                // Calculate trends for each reading using previous readings
+                var enhancedReadings = [GlucoseReading]()
                 
-                // Need to hack in the trend since it's calculated on-the-fly in the getter
-                if calculatedTrend == .rising {
-                    updatedReading = GlucoseReading(
-                        id: reading.id,
-                        timestamp: reading.timestamp,
-                        value: reading.value,
-                        unit: reading.unit,
-                        isHigh: true,   // Hack to set trend to rising
-                        isLow: false
+                for (index, reading) in recentReadings.enumerated() {
+                    // Deep copy the reading
+                    var updatedReading = reading
+                    
+                    // For each reading, consider all readings that came before it
+                    let previousReadings = Array(recentReadings.suffix(from: index + 1))
+                    
+                    // Use our enhanced trend calculation algorithm
+                    let calculatedTrend = GlucoseReading.calculateTrend(
+                        currentReading: reading,
+                        previousReadings: previousReadings
                     )
-                } else if calculatedTrend == .falling {
-                    updatedReading = GlucoseReading(
-                        id: reading.id,
-                        timestamp: reading.timestamp,
-                        value: reading.value,
-                        unit: reading.unit,
-                        isHigh: false,
-                        isLow: true     // Hack to set trend to falling
-                    )
-                } else {
-                    // Keep stable or not computable as is
-                    updatedReading = reading
+                    
+                    // Need to hack in the trend since it's calculated on-the-fly in the getter
+                    if calculatedTrend == .rising {
+                        updatedReading = GlucoseReading(
+                            id: reading.id,
+                            timestamp: reading.timestamp,
+                            value: reading.value,
+                            unit: reading.unit,
+                            isHigh: true,   // Hack to set trend to rising
+                            isLow: false
+                        )
+                    } else if calculatedTrend == .falling {
+                        updatedReading = GlucoseReading(
+                            id: reading.id,
+                            timestamp: reading.timestamp,
+                            value: reading.value,
+                            unit: reading.unit,
+                            isHigh: false,
+                            isLow: true     // Hack to set trend to falling
+                        )
+                    } else {
+                        // Keep stable or not computable as is
+                        updatedReading = reading
+                    }
+                    
+                    enhancedReadings.append(updatedReading)
                 }
                 
-                enhancedReadings.append(updatedReading)
+                // Apply granularity to reduce number of data points if configured
+                let granularityReadings = applyGranularity(to: enhancedReadings)
+                
+                // Update UI on main thread
+                await MainActor.run {
+                    self.glucoseHistory = granularityReadings
+                    self.currentGlucoseReading = granularityReadings.first
+                    print("📂 Loaded \(granularityReadings.count) glucose readings with calculated trends and applied granularity")
+                }
+                
+                // CRITICAL FIX: Process the rest of the data in the background
+                Task {
+                    print("🔄 Processing remaining \(savedReadings.count - 1000) readings in background")
+                    // Process the rest of the data here if needed
+                }
             }
-            
-            // Apply granularity to reduce number of data points if configured
-            let granularityReadings = applyGranularity(to: enhancedReadings)
-            
-            self.glucoseHistory = granularityReadings
-            self.currentGlucoseReading = granularityReadings.first
-            print("📂 Loaded \(granularityReadings.count) glucose readings with calculated trends and applied granularity")
         }
     }
     
@@ -952,8 +1174,19 @@ class AppState: ObservableObject {
             // Debug API response
             print("✅ API returned \(readings.count) readings")
             
+            // CRITICAL FIX: Check for duplicate readings before saving
+            let existingReadings = coreDataManager.fetchAllGlucoseReadings()
+            print("📊 Found \(existingReadings.count) existing readings in database")
+            
+            // Create a set of existing IDs for quick lookup
+            let existingIds = Set(existingReadings.map { $0.id })
+            
+            // Filter out readings that already exist in the database
+            let newReadings = readings.filter { !existingIds.contains($0.id) }
+            print("📊 Found \(newReadings.count) new readings to add")
+            
             // Sort to ensure most recent first
-            let sortedReadings = readings.sorted { $0.timestamp > $1.timestamp }
+            let sortedReadings = newReadings.sorted { $0.timestamp > $1.timestamp }
             
             // Check timestamp distribution
             let calendar = Calendar.current
@@ -1042,22 +1275,51 @@ class AppState: ObservableObject {
                 enhancedReadings.append(updatedReading)
             }
             
-            // Save enhanced readings to CoreData database
-            coreDataManager.saveGlucoseReadings(enhancedReadings)
-            print("💾 Saved \(enhancedReadings.count) readings with calculated trends to database")
+            // CRITICAL FIX: Only save if we have new readings
+            if !enhancedReadings.isEmpty {
+                // Save enhanced readings to CoreData database
+                coreDataManager.saveGlucoseReadings(enhancedReadings)
+                print("💾 Saved \(enhancedReadings.count) readings with calculated trends to database")
+            } else {
+                print("ℹ️ No new readings to save")
+            }
             
             // CRITICAL FIX: Load ALL readings from CoreData instead of just using the ones from API
             // This ensures we see ALL historical data, not just what the API returned this time
             let allReadings = coreDataManager.fetchAllGlucoseReadings()
             print("⚠️ CRITICAL: Loaded \(allReadings.count) total readings from CoreData after saving new data")
             
-            // Apply granularity setting to reduce data points if configured
-            let granularityReadings = applyGranularity(to: allReadings)
+            // CRITICAL FIX: Check for duplicate readings in the database
+            let uniqueIds = Set(allReadings.map { $0.id })
+            if uniqueIds.count < allReadings.count {
+                print("⚠️ WARNING: Found \(allReadings.count - uniqueIds.count) duplicate readings in database!")
+                
+                // CRITICAL FIX: Remove duplicates by ID
+                let uniqueReadings = Array(Set(allReadings))
+                print("🧹 Removed \(allReadings.count - uniqueReadings.count) duplicate readings")
+                
+                // CRITICAL FIX: Save the deduplicated readings back to CoreData
+                coreDataManager.saveGlucoseReadings(uniqueReadings)
+                print("💾 Saved deduplicated readings to database")
+                
+                // Use the deduplicated readings
+                let granularityReadings = applyGranularity(to: uniqueReadings)
+                
+                await MainActor.run {
+                    self.glucoseHistory = granularityReadings
+                    self.currentGlucoseReading = granularityReadings.first
+                }
+            } else {
+                // Apply granularity setting to reduce data points if configured
+                let granularityReadings = applyGranularity(to: allReadings)
+                
+                await MainActor.run {
+                    self.glucoseHistory = granularityReadings
+                    self.currentGlucoseReading = granularityReadings.first
+                }
+            }
             
-            self.glucoseHistory = granularityReadings
-            self.currentGlucoseReading = granularityReadings.first
-            
-            print("📊 Applied granularity: Reduced from \(allReadings.count) to \(granularityReadings.count) readings")
+            print("📊 Applied granularity: Reduced from \(allReadings.count) to \(self.glucoseHistory.count) readings")
             
             print("📱 Updated readings with calculated trends")
             

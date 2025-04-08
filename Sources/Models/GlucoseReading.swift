@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-struct GlucoseReading: Codable, Identifiable {
+struct GlucoseReading: Codable, Identifiable, Hashable {
     let id: String
     let timestamp: Date
     let value: Double
@@ -255,5 +255,14 @@ struct GlucoseReading: Codable, Identifiable {
         } else { // rateOfChange <= -0.5
             return .falling
         }
+    }
+    
+    // Add Hashable conformance
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
+    static func == (lhs: GlucoseReading, rhs: GlucoseReading) -> Bool {
+        return lhs.id == rhs.id
     }
 } 
