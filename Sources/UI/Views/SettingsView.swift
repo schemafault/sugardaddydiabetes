@@ -1,6 +1,7 @@
 import SwiftUI
 import Security // Required for working with the keychain
 import AppKit // Required for NSEvent monitoring
+import UniformTypeIdentifiers // Required for UTType
 
 // Debug extension to print current value of a UserDefaults key
 extension UserDefaults {
@@ -41,6 +42,16 @@ struct SettingsView: View {
     @State private var showingLoginError = false
     @State private var loginErrorMessage = ""
     
+    // Add state for patient profile
+    @State private var isEditingPatientProfile = false
+    @State private var patientName = ""
+    @State private var dateOfBirth: Date = Date()
+    @State private var weight = ""
+    @State private var weightUnit = "kg"
+    @State private var insulinType = ""
+    @State private var insulinDose = ""
+    @State private var otherMedications = ""
+    
     // Add state for diagnostic operations
     @State private var isDiagnosingDuplicates = false
     @State private var showDiagnosticResults = false
@@ -56,11 +67,13 @@ struct SettingsView: View {
     
     let availableIntervals = [5, 10, 15, 30, 60]
     let availableGranularities = [0, 1, 5, 15, 30]
+    let weightUnits = ["kg", "lbs"]
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 accountSection
+                patientProfileSection
                 unitsSection
                 thresholdsSection
                 updateIntervalSection
@@ -89,6 +102,7 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .onAppear {
             setupKeyMonitor()
+            loadPatientProfile()
         }
         .onDisappear {
             removeKeyMonitor()
@@ -201,6 +215,178 @@ struct SettingsView: View {
                         Text(username.isEmpty ? "Add Account" : "Edit")
                     }
                     .buttonStyle(.bordered)
+                }
+                .padding()
+                .background(Material.thin)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+    
+    private var patientProfileSection: some View {
+        SettingsSection(title: "Patient Information", icon: "person.text.rectangle") {
+            if isEditingPatientProfile {
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Patient Information")
+                        .font(.headline)
+                        .padding(.bottom, 5)
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Name", text: $patientName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                        
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Date of Birth")
+                                .font(.subheadline)
+                            
+                            // Use NSDatePicker wrapped in NSViewRepresentable for proper formatting
+                            DatePickerWithFormat(date: $dateOfBirth)
+                                .frame(height: 24)
+                        }
+                        
+                        HStack {
+                            TextField("Weight", text: $weight)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                            
+                            Picker("Unit", selection: $weightUnit) {
+                                ForEach(weightUnits, id: \.self) { unit in
+                                    Text(unit).tag(unit)
+                                }
+                            }
+                            .frame(width: 80)
+                        }
+                    }
+                    
+                    Text("Medication Information")
+                        .font(.headline)
+                        .padding(.top, 10)
+                        .padding(.bottom, 5)
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Insulin Type", text: $insulinType)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .help("e.g., Humalog, Novolog, Lantus")
+                        
+                        TextField("Insulin Dose", text: $insulinDose)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .help("e.g., 10 units morning, 8 units evening")
+                        
+                        Text("Other Medications")
+                            .font(.subheadline)
+                        
+                        TextEditor(text: $otherMedications)
+                            .frame(height: 80)
+                            .padding(4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                            )
+                            .help("List other medications with dosage")
+                    }
+                    
+                    HStack {
+                        Button("Cancel") {
+                            isEditingPatientProfile = false
+                            loadPatientProfile()
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        Spacer()
+                        
+                        Button("Save") {
+                            savePatientProfile()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.top, 10)
+                }
+                .padding()
+                .background(Material.thin)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let profile = appState.patientProfile, !profile.name.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(profile.name)
+                                        .font(.headline)
+                                    
+                                    if let age = profile.age {
+                                        Text("Age: \(age)")
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    if let formattedWeight = profile.formattedWeight {
+                                        Text("Weight: \(formattedWeight)")
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    isEditingPatientProfile = true
+                                }) {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            
+                            if let insulinType = profile.insulinType, !insulinType.isEmpty {
+                                Text("Insulin: \(insulinType)")
+                                    .font(.subheadline)
+                                
+                                if let insulinDose = profile.insulinDose, !insulinDose.isEmpty {
+                                    Text("Dose: \(insulinDose)")
+                                        .font(.subheadline)
+                                }
+                            }
+                            
+                            if let medications = profile.otherMedications, !medications.isEmpty {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Other Medications:")
+                                        .font(.subheadline)
+                                    
+                                    Text(medications)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.top, 4)
+                            }
+                            
+                            // Add export button 
+                            HStack {
+                                Spacer()
+                                
+                                Button(action: {
+                                    exportMedicalData()
+                                }) {
+                                    Label("Export Medical Data", systemImage: "square.and.arrow.up")
+                                }
+                                .buttonStyle(.bordered)
+                                .help("Export patient data and glucose readings for medical professionals")
+                            }
+                            .padding(.top, 10)
+                        }
+                    } else {
+                        HStack {
+                            Text("No patient information configured")
+                                .font(.headline)
+                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                isEditingPatientProfile = true
+                            }) {
+                                Label("Add", systemImage: "plus")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
                 }
                 .padding()
                 .background(Material.thin)
@@ -346,7 +532,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 
-                Group {
+                VStack(spacing: 4) {
                     Text("This will permanently delete all readings stored in the app.")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -467,10 +653,60 @@ struct SettingsView: View {
         }
     }
     
+    // Load patient profile data into state variables
+    private func loadPatientProfile() {
+        if let profile = appState.patientProfile {
+            patientName = profile.name
+            
+            if let dob = profile.dateOfBirth {
+                dateOfBirth = dob
+            } else {
+                // Default to a reasonable birth date if none is set
+                let defaultDate = Calendar.current.date(byAdding: .year, value: -30, to: Date()) ?? Date()
+                dateOfBirth = defaultDate
+            }
+            
+            if let profileWeight = profile.weight {
+                weight = String(profileWeight)
+            } else {
+                weight = ""
+            }
+            
+            weightUnit = profile.weightUnit ?? "kg"
+            insulinType = profile.insulinType ?? ""
+            insulinDose = profile.insulinDose ?? ""
+            otherMedications = profile.otherMedications ?? ""
+        } else {
+            // Initialize with reasonable defaults
+            let defaultDate = Calendar.current.date(byAdding: .year, value: -30, to: Date()) ?? Date()
+            dateOfBirth = defaultDate
+        }
+    }
+    
+    // Save patient profile data
+    private func savePatientProfile() {
+        var weightValue: Double?
+        if let doubleWeight = Double(weight) {
+            weightValue = doubleWeight
+        }
+        
+        appState.updatePatientProfile(
+            name: patientName,
+            dateOfBirth: dateOfBirth,
+            weight: weightValue,
+            weightUnit: weightUnit,
+            insulinType: insulinType,
+            insulinDose: insulinDose,
+            otherMedications: otherMedications
+        )
+        
+        isEditingPatientProfile = false
+    }
+    
     // MARK: - Advanced Diagnostics Section
     
     private var advancedDiagnosticsSection: some View {
-        Group {
+        VStack(spacing: 8) {
             Divider().padding(.vertical)
             
             Section(header: Text("Advanced").font(.headline)) {
@@ -613,6 +849,84 @@ struct SettingsView: View {
         // Log to console for debugging
         print("🔧 Advanced diagnostics options \(showAdvancedOptions ? "shown" : "hidden") - Use Shift+H or Option+D to toggle")
     }
+    
+    // Function to export medical data
+    private func exportMedicalData() {
+        // Generate export data
+        let exportData = appState.generateMedicalExportData()
+        
+        do {
+            // Configure date formatter for the JSON serializer to handle Date objects
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            
+            // Convert to JSON with ISO date formatting
+            let jsonEncoder = JSONEncoder()
+            jsonEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            
+            // First convert dates to strings in our dictionary
+            var processedData = exportData
+            
+            // Handle the exportDate
+            if let exportDate = processedData["exportDate"] as? Date {
+                processedData["exportDate"] = dateFormatter.string(from: exportDate)
+            }
+            
+            // Try to serialize with JSONSerialization
+            let jsonData = try JSONSerialization.data(withJSONObject: processedData, options: [.prettyPrinted, .sortedKeys])
+            
+            // Create a save panel
+            let savePanel = NSSavePanel()
+            savePanel.title = "Export Medical Data"
+            savePanel.message = "Choose a location to save the medical data"
+            savePanel.allowedContentTypes = [UTType.json]
+            savePanel.canCreateDirectories = true
+            savePanel.isExtensionHidden = false
+            
+            // Generate filename with current date
+            dateFormatter.dateFormat = "yyyy-MM-dd"
+            let dateString = dateFormatter.string(from: Date())
+            
+            // Set suggested filename
+            let patientName = appState.patientProfile?.name.replacingOccurrences(of: " ", with: "_") ?? "patient"
+            savePanel.nameFieldStringValue = "diabetes_data_\(patientName)_\(dateString).json"
+            
+            // Show the save panel as a window-independent sheet
+            savePanel.begin { response in
+                if response == .OK, let url = savePanel.url {
+                    do {
+                        // Write JSON data to file
+                        try jsonData.write(to: url)
+                        print("✅ Successfully exported medical data to: \(url.path)")
+                    } catch {
+                        print("❌ Failed to write export file: \(error)")
+                        
+                        // Show error alert
+                        DispatchQueue.main.async {
+                            let alert = NSAlert()
+                            alert.messageText = "Export Failed"
+                            alert.informativeText = "Failed to write file: \(error.localizedDescription)"
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            alert.runModal()
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("❌ Failed to generate JSON: \(error)")
+            
+            // Show error alert
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = "Export Failed"
+                alert.informativeText = "Failed to generate JSON: \(error.localizedDescription)"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        }
+    }
 }
 
 struct SettingsSection<Content: View>: View {
@@ -648,6 +962,58 @@ struct SettingsSection<Content: View>: View {
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// Add this at the end of the file, outside the SettingsView struct
+struct DatePickerWithFormat: NSViewRepresentable {
+    @Binding var date: Date
+    
+    func makeNSView(context: Context) -> NSDatePicker {
+        let datePicker = NSDatePicker()
+        
+        // Configure the date picker for text field style with 4-digit years
+        datePicker.datePickerStyle = .textField
+        datePicker.datePickerElements = .yearMonthDay
+        datePicker.calendar = Calendar(identifier: .gregorian)
+        
+        // Create formatter with 4-digit year and set it on the picker
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd/MM/yyyy" // Explicitly use 4-digit year
+        datePicker.formatter = formatter
+        
+        // Set value
+        datePicker.dateValue = date
+        
+        // Set up delegate to handle changes
+        datePicker.target = context.coordinator
+        datePicker.action = #selector(Coordinator.dateChanged(_:))
+        
+        // Set constraints
+        datePicker.minDate = Calendar.current.date(from: DateComponents(year: 1900, month: 1, day: 1))
+        datePicker.maxDate = Date()
+        
+        return datePicker
+    }
+    
+    func updateNSView(_ nsView: NSDatePicker, context: Context) {
+        nsView.dateValue = date
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject {
+        var parent: DatePickerWithFormat
+        
+        init(_ parent: DatePickerWithFormat) {
+            self.parent = parent
+        }
+        
+        @objc func dateChanged(_ sender: NSDatePicker) {
+            parent.date = sender.dateValue
+        }
     }
 }
 

@@ -12,11 +12,11 @@ class ProgrammaticCoreDataManager {
         let model = NSManagedObjectModel()
         
         // Create the GlucoseReadingEntity
-        let entity = NSEntityDescription()
-        entity.name = "GlucoseReadingEntity"
-        entity.managedObjectClassName = "GlucoseReadingEntity"
+        let glucoseEntity = NSEntityDescription()
+        glucoseEntity.name = "GlucoseReadingEntity"
+        glucoseEntity.managedObjectClassName = "GlucoseReadingEntity"
         
-        // Create attributes
+        // Create attributes for glucose entity
         let idAttribute = NSAttributeDescription()
         idAttribute.name = "id"
         idAttribute.attributeType = .stringAttributeType
@@ -49,7 +49,7 @@ class ProgrammaticCoreDataManager {
         isLowAttribute.isOptional = true
         
         // Add attributes to entity
-        entity.properties = [
+        glucoseEntity.properties = [
             idAttribute,
             timestampAttribute,
             valueAttribute,
@@ -59,11 +59,74 @@ class ProgrammaticCoreDataManager {
         ]
         
         // Add uniqueness constraint with explicit array of NSPropertyDescription objects
-        let uniqueConstraint = [idAttribute]
-        entity.uniquenessConstraints = [uniqueConstraint]
+        let glucoseUniqueConstraint = [idAttribute]
+        glucoseEntity.uniquenessConstraints = [glucoseUniqueConstraint]
         
-        // Add entity to model
-        model.entities = [entity]
+        // Create the PatientProfile entity
+        let patientEntity = NSEntityDescription()
+        patientEntity.name = "PatientProfile"
+        patientEntity.managedObjectClassName = "PatientProfile"
+        
+        // Create attributes for patient entity
+        let patientIdAttribute = NSAttributeDescription()
+        patientIdAttribute.name = "id"
+        patientIdAttribute.attributeType = .stringAttributeType
+        patientIdAttribute.isOptional = false
+        
+        let nameAttribute = NSAttributeDescription()
+        nameAttribute.name = "name"
+        nameAttribute.attributeType = .stringAttributeType
+        nameAttribute.isOptional = true
+        
+        let dobAttribute = NSAttributeDescription()
+        dobAttribute.name = "dateOfBirth"
+        dobAttribute.attributeType = .dateAttributeType
+        dobAttribute.isOptional = true
+        
+        let weightAttribute = NSAttributeDescription()
+        weightAttribute.name = "weight"
+        weightAttribute.attributeType = .doubleAttributeType
+        weightAttribute.isOptional = true
+        weightAttribute.defaultValue = 0.0
+        
+        let weightUnitAttribute = NSAttributeDescription()
+        weightUnitAttribute.name = "weightUnit"
+        weightUnitAttribute.attributeType = .stringAttributeType
+        weightUnitAttribute.isOptional = true
+        
+        let insulinTypeAttribute = NSAttributeDescription()
+        insulinTypeAttribute.name = "insulinType"
+        insulinTypeAttribute.attributeType = .stringAttributeType
+        insulinTypeAttribute.isOptional = true
+        
+        let insulinDoseAttribute = NSAttributeDescription()
+        insulinDoseAttribute.name = "insulinDose"
+        insulinDoseAttribute.attributeType = .stringAttributeType
+        insulinDoseAttribute.isOptional = true
+        
+        let otherMedicationsAttribute = NSAttributeDescription()
+        otherMedicationsAttribute.name = "otherMedications"
+        otherMedicationsAttribute.attributeType = .stringAttributeType
+        otherMedicationsAttribute.isOptional = true
+        
+        // Add attributes to patient entity
+        patientEntity.properties = [
+            patientIdAttribute,
+            nameAttribute,
+            dobAttribute,
+            weightAttribute,
+            weightUnitAttribute,
+            insulinTypeAttribute,
+            insulinDoseAttribute,
+            otherMedicationsAttribute
+        ]
+        
+        // Add uniqueness constraint for patient
+        let patientUniqueConstraint = [patientIdAttribute]
+        patientEntity.uniquenessConstraints = [patientUniqueConstraint]
+        
+        // Add entities to model
+        model.entities = [glucoseEntity, patientEntity]
         
         return model
     }
@@ -522,6 +585,88 @@ class ProgrammaticCoreDataManager {
         } catch {
             print("❌ Error fetching readings by date range: \(error)")
             return []
+        }
+    }
+    
+    // MARK: - Patient Profile Methods
+    
+    /// Save a patient profile to CoreData
+    func savePatientProfile(_ profile: PatientProfile) {
+        let context = persistentContainer.viewContext
+        
+        // Check if profile already exists
+        let fetchRequest: NSFetchRequest<NSManagedObject> = NSFetchRequest(entityName: "PatientProfile")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", profile.id)
+        
+        do {
+            let existingProfiles = try context.fetch(fetchRequest)
+            
+            let profileEntity: NSManagedObject
+            
+            if let existingProfile = existingProfiles.first {
+                // Update existing profile
+                profileEntity = existingProfile
+            } else {
+                // Create new profile
+                profileEntity = NSEntityDescription.insertNewObject(forEntityName: "PatientProfile", into: context)
+                profileEntity.setValue(profile.id, forKey: "id")
+            }
+            
+            // Set or update values
+            profileEntity.setValue(profile.name, forKey: "name")
+            profileEntity.setValue(profile.dateOfBirth, forKey: "dateOfBirth")
+            profileEntity.setValue(profile.weight, forKey: "weight")
+            profileEntity.setValue(profile.weightUnit, forKey: "weightUnit")
+            profileEntity.setValue(profile.insulinType, forKey: "insulinType")
+            profileEntity.setValue(profile.insulinDose, forKey: "insulinDose")
+            profileEntity.setValue(profile.otherMedications, forKey: "otherMedications")
+            
+            // Save the context
+            try context.save()
+            print("✅ Saved patient profile with ID: \(profile.id)")
+        } catch {
+            print("❌ Failed to save patient profile: \(error)")
+        }
+    }
+    
+    /// Fetch the patient profile from CoreData
+    /// Since this is a single-user app, we'll just fetch the first profile found
+    func fetchPatientProfile() -> PatientProfile? {
+        let context = persistentContainer.viewContext
+        let fetchRequest: NSFetchRequest<NSManagedObject> = NSFetchRequest(entityName: "PatientProfile")
+        
+        do {
+            let results = try context.fetch(fetchRequest)
+            
+            guard let profileEntity = results.first else {
+                print("ℹ️ No patient profile found")
+                return nil
+            }
+            
+            // Extract values from the entity
+            let id = profileEntity.value(forKey: "id") as? String ?? UUID().uuidString
+            let name = profileEntity.value(forKey: "name") as? String ?? ""
+            let dateOfBirth = profileEntity.value(forKey: "dateOfBirth") as? Date
+            let weight = profileEntity.value(forKey: "weight") as? Double
+            let weightUnit = profileEntity.value(forKey: "weightUnit") as? String
+            let insulinType = profileEntity.value(forKey: "insulinType") as? String
+            let insulinDose = profileEntity.value(forKey: "insulinDose") as? String
+            let otherMedications = profileEntity.value(forKey: "otherMedications") as? String
+            
+            // Create and return the profile
+            return PatientProfile(
+                id: id,
+                name: name,
+                dateOfBirth: dateOfBirth,
+                weight: weight,
+                weightUnit: weightUnit,
+                insulinType: insulinType,
+                insulinDose: insulinDose,
+                otherMedications: otherMedications
+            )
+        } catch {
+            print("❌ Failed to fetch patient profile: \(error)")
+            return nil
         }
     }
 } 

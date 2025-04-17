@@ -1333,7 +1333,10 @@ class AppState: ObservableObject {
     @Published var glucoseHistory: [GlucoseReading] = []
     @Published var isLoading = false
     @Published var error: Error?
-    @Published var selectedTab = 0 // Add selectedTab property
+    @Published var selectedTab = 0
+    
+    // Add patient profile property
+    @Published var patientProfile: PatientProfile?
     
     // Current unit of measurement (mmol/L or mg/dL)
     var currentUnit: String {
@@ -1364,6 +1367,9 @@ class AppState: ObservableObject {
         
         // Load saved readings from CoreData
         loadSavedReadings()
+        
+        // Load patient profile
+        loadPatientProfile()
         
         Task {
             do {
@@ -1651,5 +1657,101 @@ class AppState: ObservableObject {
             print("📊 Running database diagnostics...")
             DiabetesDataDiagnostic.shared.analyzeDuplicateReadings(coreDataManager: coreDataManager)
         }
+    }
+    
+    // Load patient profile from CoreData
+    private func loadPatientProfile() {
+        if let profile = coreDataManager.fetchPatientProfile() {
+            self.patientProfile = profile
+            print("📋 Loaded patient profile: \(profile.name)")
+        } else {
+            // Create a default profile if none exists
+            let defaultProfile = PatientProfile(id: UUID().uuidString)
+            self.patientProfile = defaultProfile
+            print("📋 Created default patient profile")
+        }
+    }
+    
+    // Save patient profile to CoreData
+    func savePatientProfile(_ profile: PatientProfile) {
+        coreDataManager.savePatientProfile(profile)
+        self.patientProfile = profile
+    }
+    
+    // Update specific patient profile fields
+    func updatePatientProfile(
+        name: String? = nil,
+        dateOfBirth: Date? = nil,
+        weight: Double? = nil,
+        weightUnit: String? = nil,
+        insulinType: String? = nil,
+        insulinDose: String? = nil,
+        otherMedications: String? = nil
+    ) {
+        // Start with current profile or create a new one if none exists
+        var updatedProfile = self.patientProfile ?? PatientProfile(id: UUID().uuidString)
+        
+        // Update fields if provided
+        if let name = name {
+            updatedProfile.name = name
+        }
+        
+        if let dateOfBirth = dateOfBirth {
+            updatedProfile.dateOfBirth = dateOfBirth
+        }
+        
+        if let weight = weight {
+            updatedProfile.weight = weight
+        }
+        
+        if let weightUnit = weightUnit {
+            updatedProfile.weightUnit = weightUnit
+        }
+        
+        if let insulinType = insulinType {
+            updatedProfile.insulinType = insulinType
+        }
+        
+        if let insulinDose = insulinDose {
+            updatedProfile.insulinDose = insulinDose
+        }
+        
+        if let otherMedications = otherMedications {
+            updatedProfile.otherMedications = otherMedications
+        }
+        
+        // Save updated profile
+        savePatientProfile(updatedProfile)
+    }
+    
+    // Generate export data including patient profile and glucose readings
+    func generateMedicalExportData() -> [String: Any] {
+        var exportData: [String: Any] = [
+            "exportDate": Date(),
+            "glucoseUnit": currentUnit
+        ]
+        
+        // Add patient profile if available
+        if let profile = patientProfile {
+            exportData["patientProfile"] = profile.exportDictionary
+        }
+        
+        // Add glucose readings
+        let readingsData = glucoseHistory.map { reading -> [String: Any] in
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            
+            return [
+                "timestamp": dateFormatter.string(from: reading.timestamp),
+                "value": reading.value,
+                "unit": reading.unit,
+                "isHigh": reading.isHigh,
+                "isLow": reading.isLow
+            ]
+        }
+        
+        exportData["glucoseReadings"] = readingsData
+        
+        return exportData
     }
 } 
