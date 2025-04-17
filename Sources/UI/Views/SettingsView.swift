@@ -40,6 +40,15 @@ struct SettingsView: View {
     @State private var showingLoginError = false
     @State private var loginErrorMessage = ""
     
+    // Add state for diagnostic operations
+    @State private var isDiagnosingDuplicates = false
+    @State private var showDiagnosticResults = false
+    
+    // Add state for cleanup operations
+    @State private var showCleanupConfirmation = false
+    @State private var showCleanupResultAlert = false
+    @State private var cleanupResultMessage = ""
+    
     let availableIntervals = [5, 10, 15, 30, 60]
     let availableGranularities = [0, 1, 5, 15, 30]
     
@@ -52,6 +61,111 @@ struct SettingsView: View {
                 updateIntervalSection
                 dataGranularitySection
                 dataManagementSection
+                
+                // Add this section after the other settings sections
+                Group {
+                    Divider().padding(.vertical)
+                    
+                    Section(header: Text("Advanced").font(.headline)) {
+                        VStack(alignment: .leading, spacing: 20) {
+                            Text("Diagnostics")
+                                .font(.title3)
+                                .fontWeight(.medium)
+                            
+                            VStack(alignment: .leading, spacing: 20) {
+                                // Diagnostic button
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Button(action: {
+                                        isDiagnosingDuplicates = true
+                                        appState.diagnoseDuplicateReadings()
+                                        
+                                        // Set a timer to show the "completed" message
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                            isDiagnosingDuplicates = false
+                                            showDiagnosticResults = true
+                                            
+                                            // Auto-hide results after 5 seconds
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                                                showDiagnosticResults = false
+                                            }
+                                        }
+                                    }) {
+                                        Text("Check Database for Duplicate Readings")
+                                            .frame(minWidth: 220)
+                                    }
+                                    .disabled(isDiagnosingDuplicates || appState.isDatabaseCleanupRunning)
+                                    
+                                    if isDiagnosingDuplicates {
+                                        HStack {
+                                            ProgressView()
+                                                .scaleEffect(0.8)
+                                                .padding(.trailing, 4)
+                                            
+                                            Text("Analyzing database...")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    
+                                    if showDiagnosticResults {
+                                        Text("Diagnostics complete! Check console output for results.")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                    }
+                                    
+                                    Text("This checks for duplicate readings in the database without modifying any data. Results are displayed in the console logs.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Divider()
+                                
+                                // Database cleanup button
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Button(action: {
+                                        showCleanupConfirmation = true
+                                    }) {
+                                        Text("Clean Up Duplicate Readings")
+                                            .frame(minWidth: 220)
+                                    }
+                                    .disabled(isDiagnosingDuplicates || appState.isDatabaseCleanupRunning)
+                                    
+                                    if appState.isDatabaseCleanupRunning {
+                                        HStack {
+                                            ProgressView()
+                                                .scaleEffect(0.8)
+                                                .padding(.trailing, 4)
+                                            
+                                            Text("Cleaning up database...")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    
+                                    if let lastResult = appState.lastCleanupResult {
+                                        switch lastResult {
+                                        case .success(let uniqueCount, let duplicatesRemoved, _):
+                                            Text("Cleanup successful! Kept \(uniqueCount) unique readings, removed \(duplicatesRemoved) duplicates.")
+                                                .font(.caption)
+                                                .foregroundColor(.green)
+                                        case .failure(let error):
+                                            Text("Cleanup failed: \(error)")
+                                                .font(.caption)
+                                                .foregroundColor(.red)
+                                        }
+                                    }
+                                    
+                                    Text("This removes duplicate readings from the database while preserving one reading per timestamp. A backup is created first.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(Material.regularMaterial)
+                        .cornerRadius(8)
+                    }
+                }
                 
                 Spacer()
             }
@@ -74,7 +188,35 @@ struct SettingsView: View {
         } message: {
             Text("This will permanently delete all your stored glucose readings. This action cannot be undone.")
         }
+        .alert("Confirm Database Cleanup", isPresented: $showCleanupConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clean Up Database", role: .destructive) {
+                Task {
+                    await appState.cleanupDuplicateReadings()
+                    
+                    // Show results alert when finished
+                    await MainActor.run {
+                        if let result = appState.lastCleanupResult {
+                            switch result {
+                            case .success(let uniqueCount, let duplicatesRemoved, let backupPath):
+                                cleanupResultMessage = "Successfully removed \(duplicatesRemoved) duplicate readings.\n\nPreserved \(uniqueCount) unique readings.\n\nBackup created: \(backupPath ?? "No backup")"
+                            case .failure(let error):
+                                cleanupResultMessage = "Cleanup failed: \(error)"
+                            }
+                            showCleanupResultAlert = true
+                        }
+                    }
+                }
+            }
+        } message: {
+            Text("This will remove duplicate readings from your database while preserving exactly one reading per timestamp. A backup will be created first. Proceed?")
         }
+        .alert("Database Cleanup Results", isPresented: $showCleanupResultAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(cleanupResultMessage)
+        }
+    }
     
     private var accountSection: some View {
         SettingsSection(title: "LibreView Account", icon: "person.fill") {

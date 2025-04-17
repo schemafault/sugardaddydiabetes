@@ -6,6 +6,7 @@ struct ContentView: View {
     @Binding var selectedTab: Int
     @State private var showSidebar: Bool = true
     @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var toastManager = ToastManager.shared
     
     var body: some View {
         NavigationSplitView {
@@ -87,6 +88,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button(action: {
+                        print("🔔 TOAST DEBUG: Refresh button clicked in toolbar")
                         Task {
                             await appState.fetchLatestReadings()
                         }
@@ -110,6 +112,20 @@ struct ContentView: View {
         } message: {
             if let error = appState.error {
                 Text(error.localizedDescription)
+            }
+        }
+        .toast()
+        .onReceive(appState.$lastRefreshResult) { newValue in
+            print("🔔 TOAST ContentView: Refresh result changed to \(newValue)")
+            if case .success(let count) = newValue {
+                print("🔔 TOAST ContentView: Showing success toast for \(count) readings")
+                toastManager.showSuccess("Successfully added \(count) new reading\(count == 1 ? "" : "s")")
+            } else if case .upToDate = newValue {
+                print("🔔 TOAST ContentView: Showing up-to-date toast")
+                toastManager.showInfo("Already up to date with latest readings")
+            } else if case .error(let error) = newValue {
+                print("🔔 TOAST ContentView: Showing error toast: \(error.localizedDescription)")
+                toastManager.showError("Error: \(error.localizedDescription)")
             }
         }
     }

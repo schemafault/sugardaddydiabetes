@@ -1156,6 +1156,59 @@ class AppState: ObservableObject {
         print("Cleared data from memory - all API data is still in CoreData database")
     }
     
+    // Add properties to track refresh results
+    enum RefreshResult: Equatable {
+        case none
+        case success(newReadingsCount: Int)
+        case upToDate
+        case error(Error)
+        
+        var message: String {
+            switch self {
+            case .none:
+                return ""
+            case .success(let count):
+                return "Successfully added \(count) new reading\(count == 1 ? "" : "s")"
+            case .upToDate:
+                return "Already up to date with latest readings"
+            case .error(let error):
+                return "Error: \(error.localizedDescription)"
+            }
+        }
+        
+        var isSuccess: Bool {
+            if case .success = self {
+                return true
+            }
+            return false
+        }
+        
+        var isError: Bool {
+            if case .error = self {
+                return true
+            }
+            return false
+        }
+        
+        // Implement Equatable
+        static func == (lhs: RefreshResult, rhs: RefreshResult) -> Bool {
+            switch (lhs, rhs) {
+            case (.none, .none):
+                return true
+            case (.upToDate, .upToDate):
+                return true
+            case (.success(let count1), .success(let count2)):
+                return count1 == count2
+            case (.error(let err1), .error(let err2)):
+                return err1.localizedDescription == err2.localizedDescription
+            default:
+                return false
+            }
+        }
+    }
+    
+    @Published var lastRefreshResult: RefreshResult = .none
+    
     // Method to reload data with current granularity setting
     func reloadWithCurrentGranularity() async {
         print("🔄 Reloading data with current granularity setting...")
@@ -1295,6 +1348,15 @@ class AppState: ObservableObject {
     
     // Property to track if menu bar should be shown
     @Published var showMenuBar: Bool = true
+    
+    // Add state variables for database cleanup
+    @Published var isDatabaseCleanupRunning = false
+    @Published var lastCleanupResult: DatabaseCleanupResult? = nil
+    
+    enum DatabaseCleanupResult {
+        case success(uniqueCount: Int, duplicatesRemoved: Int, backupPath: String?)
+        case failure(error: String)
+    }
     
     init() {
         // Initialize coreDataManager first
@@ -1467,6 +1529,13 @@ class AppState: ObservableObject {
     }
     
     func fetchLatestReadings() async {
+        // Reset the refresh result to ensure onChange is triggered even with the same result
+        await MainActor.run {
+            // Set to none first to ensure onChange triggers even if the result is the same
+            print("🔔 TOAST: Resetting refresh result before fetch")
+            self.lastRefreshResult = .none
+        }
+        
         do {
             // Always fetch real glucose data from the API
             print("🔄 Fetching real glucose data from LibreView API...")
@@ -1475,168 +1544,112 @@ class AppState: ObservableObject {
             // Debug API response
             print("✅ API returned \(readings.count) readings")
             
-            // CRITICAL FIX: Check for duplicate readings before saving
+            // IMPROVED DUPLICATE DETECTION: Check for readings with matching timestamps
             let existingReadings = coreDataManager.fetchAllGlucoseReadings()
             print("📊 Found \(existingReadings.count) existing readings in database")
             
-            // Create a set of existing IDs for quick lookup
-            let existingIds = Set(existingReadings.map { $0.id })
+            // Create a set of existing timestamps (as timeIntervalSince1970) for exact comparison
+            let existingTimestamps = Set(existingReadings.map { $0.timestamp.timeIntervalSince1970 })
             
-            // Filter out readings that already exist in the database
-            let newReadings = readings.filter { !existingIds.contains($0.id) }
+            // Filter out readings that already exist in the database by comparing exact timestamps
+            let newReadings = readings.filter { reading in
+                !existingTimestamps.contains(reading.timestamp.timeIntervalSince1970)
+            }
+            
             print("📊 Found \(newReadings.count) new readings to add")
             
-            // Sort to ensure most recent first
-            let sortedReadings = newReadings.sorted { $0.timestamp > $1.timestamp }
-            
-            // Check timestamp distribution
-            let calendar = Calendar.current
-            let uniqueDates = Set(sortedReadings.map { calendar.startOfDay(for: $0.timestamp) })
-            print("📊 Readings span \(uniqueDates.count) unique days")
-            
-            // Get date range of data
-            if let earliest = sortedReadings.last?.timestamp, let latest = sortedReadings.first?.timestamp {
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd"
+            // Special explicit handling for no new readings case
+            if newReadings.isEmpty {
+                print("🔔 TOAST FINAL DEBUG: No new readings detected - need to show 'Already up to date' toast")
                 
-                let earliestStr = dateFormatter.string(from: earliest)
-                let latestStr = dateFormatter.string(from: latest)
-                
-                let daysBetween = calendar.dateComponents([.day], from: earliest, to: latest).day ?? 0
-                print("📅 Date range: \(earliestStr) to \(latestStr) (\(daysBetween) days)")
-                
-                // List all unique days in the data
-                let allDays = uniqueDates.sorted()
-                print("📆 Data available for these days:")
-                
-                var dayCount = 0
-                for day in allDays {
-                    let dayStr = dateFormatter.string(from: day)
-                    let countForDay = sortedReadings.filter { calendar.isDate($0.timestamp, inSameDayAs: day) }.count
-                    print("  • \(dayStr): \(countForDay) readings")
-                    dayCount += 1
+                // Make absolutely sure the message gets shown
+                await MainActor.run {
+                    // Force a message directly in the UI for testing
+                    print("🔔 TOAST FINAL DEBUG: Directly calling toast manager")
+                    ToastManager.shared.showInfo("Already up to date with latest readings")
                     
-                    // Limit output to avoid flooding the console
-                    if dayCount >= 10 && allDays.count > 12 {
-                        print("  • ... and \(allDays.count - 10) more days")
-                        break
+                    // Also update the state as before
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        print("🔔 TOAST FINAL DEBUG: Setting state to .upToDate")
+                        self.lastRefreshResult = .upToDate
                     }
                 }
+                
+                return
             }
             
-            // Log some sample readings
-            print("📋 Sample of readings:")
-            for (index, reading) in sortedReadings.prefix(5).enumerated() {
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-                let timestampStr = dateFormatter.string(from: reading.timestamp)
-                print("  [\(index)] \(reading.value) \(reading.unit) at \(timestampStr)")
-            }
-            
-            // Calculate trends for readings
-            var enhancedReadings = [GlucoseReading]()
-            
-            for (index, reading) in sortedReadings.enumerated() {
-                // Deep copy the reading
-                var updatedReading = reading
+            // We have new readings, save them and update
+            if !newReadings.isEmpty {
+                // Save the new readings
+                coreDataManager.saveGlucoseReadings(newReadings)
                 
-                // For each reading, consider all readings that came before it
-                let previousReadings = Array(sortedReadings.suffix(from: index + 1))
-                
-                // Use our enhanced trend calculation algorithm
-                let calculatedTrend = GlucoseReading.calculateTrend(
-                    currentReading: reading,
-                    previousReadings: previousReadings
-                )
-                
-                // Need to hack in the trend since it's calculated on-the-fly in the getter
-                if calculatedTrend == .rising {
-                    updatedReading = GlucoseReading(
-                        id: reading.id,
-                        timestamp: reading.timestamp,
-                        value: reading.value,
-                        unit: reading.unit,
-                        isHigh: true,   // Hack to set trend to rising
-                        isLow: false
-                    )
-                } else if calculatedTrend == .falling {
-                    updatedReading = GlucoseReading(
-                        id: reading.id,
-                        timestamp: reading.timestamp,
-                        value: reading.value,
-                        unit: reading.unit,
-                        isHigh: false,
-                        isLow: true     // Hack to set trend to falling
-                    )
-                } else {
-                    // Keep stable or not computable as is
-                    updatedReading = reading
-                }
-                
-                enhancedReadings.append(updatedReading)
-            }
-            
-            // CRITICAL FIX: Only save if we have new readings
-            if !enhancedReadings.isEmpty {
-                // Save enhanced readings to CoreData database
-                coreDataManager.saveGlucoseReadings(enhancedReadings)
-                print("💾 Saved \(enhancedReadings.count) readings with calculated trends to database")
-            } else {
-                print("ℹ️ No new readings to save")
-            }
-            
-            // CRITICAL FIX: Load ALL readings from CoreData instead of just using the ones from API
-            // This ensures we see ALL historical data, not just what the API returned this time
-            let allReadings = coreDataManager.fetchAllGlucoseReadings()
-            print("⚠️ CRITICAL: Loaded \(allReadings.count) total readings from CoreData after saving new data")
-            
-            // CRITICAL FIX: Check for duplicate readings in the database
-            let uniqueIds = Set(allReadings.map { $0.id })
-            if uniqueIds.count < allReadings.count {
-                print("⚠️ WARNING: Found \(allReadings.count - uniqueIds.count) duplicate readings in database!")
-                
-                // CRITICAL FIX: Remove duplicates by ID
-                let uniqueReadings = Array(Set(allReadings))
-                print("🧹 Removed \(allReadings.count - uniqueReadings.count) duplicate readings")
-                
-                // CRITICAL FIX: Save the deduplicated readings back to CoreData
-                coreDataManager.saveGlucoseReadings(uniqueReadings)
-                print("💾 Saved deduplicated readings to database")
-                
-                // Use the deduplicated readings
-                let granularityReadings = applyGranularity(to: uniqueReadings)
-                
+                // Update app state with new readings
                 await MainActor.run {
-                    self.glucoseHistory = granularityReadings
-                    self.currentGlucoseReading = granularityReadings.first
-                }
-            } else {
-                // Apply granularity setting to reduce data points if configured
-                let granularityReadings = applyGranularity(to: allReadings)
-                
-                await MainActor.run {
-                    self.glucoseHistory = granularityReadings
-                    self.currentGlucoseReading = granularityReadings.first
+                    print("🔔 TOAST: Setting refresh result to .success(\(newReadings.count))")
+                    self.lastRefreshResult = .success(newReadingsCount: newReadings.count)
                 }
             }
             
-            print("📊 Applied granularity: Reduced from \(allReadings.count) to \(self.glucoseHistory.count) readings")
+            // Update state regardless of new readings
+            loadSavedReadings()
             
-            print("📱 Updated readings with calculated trends")
-            
-            if let reading = currentGlucoseReading {
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-                print("📱 Current glucose: \(reading.value) \(reading.unit) at \(dateFormatter.string(from: reading.timestamp))")
-            }
         } catch {
-            print("❌ Error fetching glucose data: \(error.localizedDescription)")
-            self.error = error
+            print("❌ Error fetching glucose data: \(error)")
             
-            // Never use test data - always rely on real API data
-            // Still keep existing CoreData readings in memory
+            await MainActor.run {
+                print("🔔 TOAST: Setting refresh result to .error")
+                self.lastRefreshResult = .error(error)
+            }
         }
     }
     
     // No test data generation function - always using real API data only
+    
+    // Cleanup database by removing duplicate readings
+    func cleanupDuplicateReadings() async {
+        // Prepare for cleanup
+        await MainActor.run {
+            isDatabaseCleanupRunning = true
+            lastCleanupResult = nil
+        }
+        
+        // Run backup first
+        let backupPath = DiabetesDataDiagnostic.shared.backupDatabase()
+        
+        if backupPath == nil {
+            print("⚠️ Warning: Proceeding with cleanup without successful backup")
+        }
+        
+        // Perform cleanup
+        let result = DiabetesDataDiagnostic.shared.cleanupDuplicateReadings(coreDataManager: coreDataManager)
+        
+        // Update state with results
+        await MainActor.run {
+            isDatabaseCleanupRunning = false
+            
+            if result.success {
+                print("✅ Database cleanup completed: removed \(result.duplicatesRemoved) duplicates, kept \(result.uniqueCount) unique readings")
+                lastCleanupResult = .success(
+                    uniqueCount: result.uniqueCount,
+                    duplicatesRemoved: result.duplicatesRemoved,
+                    backupPath: backupPath
+                )
+                
+                // Reload data to reflect changes
+                Task {
+                    loadSavedReadings()
+                }
+            } else {
+                lastCleanupResult = .failure(error: "Database cleanup failed")
+            }
+        }
+    }
+    
+    // Diagnostic method to check for duplicate readings without modifying data
+    func diagnoseDuplicateReadings() {
+        Task {
+            print("📊 Running database diagnostics...")
+            DiabetesDataDiagnostic.shared.analyzeDuplicateReadings(coreDataManager: coreDataManager)
+        }
+    }
 } 

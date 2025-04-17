@@ -18,6 +18,7 @@ struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var toastManager = ToastManager.shared
     
     // Add an ID for tracking instances
     private let instanceID = UUID()
@@ -64,6 +65,21 @@ struct MenuBarView: View {
         .onTapGesture {
             // This empty gesture handler prevents taps from closing the menu
             print("🍔 Tap detected in menu - preventing propagation")
+        }
+        .toast() // Add toast support
+        .onReceive(appState.$lastRefreshResult) { newValue in
+            print("🔔 TOAST MenuBarView: Refresh result changed to \(newValue)")
+            // Show toast based on refresh result
+            if case .success(let count) = newValue {
+                print("🔔 TOAST MenuBarView: Showing success toast for \(count) readings")
+                toastManager.showSuccess("Successfully added \(count) new reading\(count == 1 ? "" : "s")")
+            } else if case .upToDate = newValue {
+                print("🔔 TOAST MenuBarView: Showing up-to-date toast")
+                toastManager.showInfo("Already up to date with latest readings")
+            } else if case .error(let error) = newValue {
+                print("🔔 TOAST MenuBarView: Showing error toast: \(error.localizedDescription)")
+                toastManager.showError("Error: \(error.localizedDescription)")
+            }
         }
         .onAppear {
             print("🍔 MenuBarView appeared with instance ID: \(instanceID)")
@@ -223,6 +239,8 @@ struct MenuBarView: View {
             }
             
             MenuRowButton(title: "Refresh Data", icon: "arrow.clockwise") {
+                // Show a toast when refresh is initiated
+                print("🔔 TOAST DEBUG: Refresh button clicked in menu bar")
                 Task {
                     await appState.fetchLatestReadings()
                 }
