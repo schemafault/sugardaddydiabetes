@@ -12,7 +12,11 @@ compiled_raycast_swift
 
 # Build files
 .build/
+.dmg
 
 # misc
 .DS_Store
 .env
+
+# Local build instructions
+build-instructions.md

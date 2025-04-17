@@ -245,7 +245,20 @@ struct MenuBarView: View {
             
             if appState.isAuthenticated {
                 MenuRowButton(title: "Logout", icon: "rectangle.portrait.and.arrow.right", isDestructive: true) {
+                    // Clear credentials from UserDefaults
+                    UserDefaults.standard.removeObject(forKey: "username")
+                    UserDefaults.standard.removeObject(forKey: "password")
+                    UserDefaults.standard.synchronize()
+                    
+                    // Update app state
                     appState.isAuthenticated = false
+                    
+                    // Clear current glucose data
+                    Task {
+                        await appState.clearAllData()
+                    }
+                    
+                    print("🔒 User logged out, credentials cleared")
                 }
             }
             

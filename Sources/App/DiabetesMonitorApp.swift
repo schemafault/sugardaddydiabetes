@@ -350,6 +350,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     await MainActor.run {
                         if isValid {
                             // If valid, close login window
+                            print("✅ Credentials verified - closing login window")
+                            weakWindowController?.stopLoading()
                             weakWindowController?.close()
                         } else {
                             // If not valid, show error and clear credentials
@@ -363,6 +365,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let weakWindowController = windowController
                     await MainActor.run {
                         // If error, show error and clear credentials
+                        print("❌ Authentication error: \(error.localizedDescription)")
                         UserDefaults.standard.removeObject(forKey: "username")
                         UserDefaults.standard.removeObject(forKey: "password")
                         weakWindowController?.showError("Error: \(error.localizedDescription)")
@@ -862,6 +865,8 @@ struct DiabetesMonitorApp: App {
                     await MainActor.run {
                         if isValid {
                             // If valid, close login window
+                            print("✅ Credentials verified - closing login window")
+                            weakWindowController?.stopLoading()
                             weakWindowController?.close()
                         } else {
                             // If not valid, show error and clear credentials
@@ -875,6 +880,7 @@ struct DiabetesMonitorApp: App {
                     let weakWindowController = windowController
                     await MainActor.run {
                         // If error, show error and clear credentials
+                        print("❌ Authentication error: \(error.localizedDescription)")
                         UserDefaults.standard.removeObject(forKey: "username")
                         UserDefaults.standard.removeObject(forKey: "password")
                         weakWindowController?.showError("Error: \(error.localizedDescription)")
