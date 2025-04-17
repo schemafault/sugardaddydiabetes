@@ -1,5 +1,6 @@
 import SwiftUI
 import Security // Required for working with the keychain
+import AppKit // Required for NSEvent monitoring
 
 // Debug extension to print current value of a UserDefaults key
 extension UserDefaults {
@@ -49,6 +50,10 @@ struct SettingsView: View {
     @State private var showCleanupResultAlert = false
     @State private var cleanupResultMessage = ""
     
+    // Advanced options visibility control
+    @State private var showAdvancedOptions = false
+    @State private var keyMonitor: Any? = nil
+    
     let availableIntervals = [5, 10, 15, 30, 60]
     let availableGranularities = [0, 1, 5, 15, 30]
     
@@ -62,110 +67,19 @@ struct SettingsView: View {
                 dataGranularitySection
                 dataManagementSection
                 
-                // Add this section after the other settings sections
-                Group {
-                    Divider().padding(.vertical)
-                    
-                    Section(header: Text("Advanced").font(.headline)) {
-                        VStack(alignment: .leading, spacing: 20) {
-                            Text("Diagnostics")
-                                .font(.title3)
-                                .fontWeight(.medium)
-                            
-                            VStack(alignment: .leading, spacing: 20) {
-                                // Diagnostic button
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Button(action: {
-                                        isDiagnosingDuplicates = true
-                                        appState.diagnoseDuplicateReadings()
-                                        
-                                        // Set a timer to show the "completed" message
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                            isDiagnosingDuplicates = false
-                                            showDiagnosticResults = true
-                                            
-                                            // Auto-hide results after 5 seconds
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                                                showDiagnosticResults = false
-                                            }
-                                        }
-                                    }) {
-                                        Text("Check Database for Duplicate Readings")
-                                            .frame(minWidth: 220)
-                                    }
-                                    .disabled(isDiagnosingDuplicates || appState.isDatabaseCleanupRunning)
-                                    
-                                    if isDiagnosingDuplicates {
-                                        HStack {
-                                            ProgressView()
-                                                .scaleEffect(0.8)
-                                                .padding(.trailing, 4)
-                                            
-                                            Text("Analyzing database...")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    }
-                                    
-                                    if showDiagnosticResults {
-                                        Text("Diagnostics complete! Check console output for results.")
-                                            .font(.caption)
-                                            .foregroundColor(.green)
-                                    }
-                                    
-                                    Text("This checks for duplicate readings in the database without modifying any data. Results are displayed in the console logs.")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                
-                                Divider()
-                                
-                                // Database cleanup button
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Button(action: {
-                                        showCleanupConfirmation = true
-                                    }) {
-                                        Text("Clean Up Duplicate Readings")
-                                            .frame(minWidth: 220)
-                                    }
-                                    .disabled(isDiagnosingDuplicates || appState.isDatabaseCleanupRunning)
-                                    
-                                    if appState.isDatabaseCleanupRunning {
-                                        HStack {
-                                            ProgressView()
-                                                .scaleEffect(0.8)
-                                                .padding(.trailing, 4)
-                                            
-                                            Text("Cleaning up database...")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    }
-                                    
-                                    if let lastResult = appState.lastCleanupResult {
-                                        switch lastResult {
-                                        case .success(let uniqueCount, let duplicatesRemoved, _):
-                                            Text("Cleanup successful! Kept \(uniqueCount) unique readings, removed \(duplicatesRemoved) duplicates.")
-                                                .font(.caption)
-                                                .foregroundColor(.green)
-                                        case .failure(let error):
-                                            Text("Cleanup failed: \(error)")
-                                                .font(.caption)
-                                                .foregroundColor(.red)
-                                        }
-                                    }
-                                    
-                                    Text("This removes duplicate readings from the database while preserving one reading per timestamp. A backup is created first.")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        .padding()
-                        .background(Material.regularMaterial)
-                        .cornerRadius(8)
-                    }
+                // Conditionally display advanced options
+                if showAdvancedOptions {
+                    advancedDiagnosticsSection
                 }
+                
+                // Small visual indicator for advanced options
+                HStack {
+                    Spacer()
+                    Circle()
+                        .fill(showAdvancedOptions ? Color.green.opacity(0.5) : Color.clear)
+                        .frame(width: 5, height: 5)
+                }
+                .padding(.trailing, 8)
                 
                 Spacer()
             }
@@ -173,6 +87,12 @@ struct SettingsView: View {
             .frame(maxWidth: 600, alignment: .center)
         }
         .navigationTitle("Settings")
+        .onAppear {
+            setupKeyMonitor()
+        }
+        .onDisappear {
+            removeKeyMonitor()
+        }
         .alert("Error", isPresented: $showingLoginError) {
             Button("OK") {}
         } message: {
@@ -545,6 +465,153 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+    
+    // MARK: - Advanced Diagnostics Section
+    
+    private var advancedDiagnosticsSection: some View {
+        Group {
+            Divider().padding(.vertical)
+            
+            Section(header: Text("Advanced").font(.headline)) {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Diagnostics")
+                        .font(.title3)
+                        .fontWeight(.medium)
+                    
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Diagnostic button
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button(action: {
+                                isDiagnosingDuplicates = true
+                                appState.diagnoseDuplicateReadings()
+                                
+                                // Set a timer to show the "completed" message
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    isDiagnosingDuplicates = false
+                                    showDiagnosticResults = true
+                                    
+                                    // Auto-hide results after 5 seconds
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                                        showDiagnosticResults = false
+                                    }
+                                }
+                            }) {
+                                Text("Check Database for Duplicate Readings")
+                                    .frame(minWidth: 220)
+                            }
+                            .disabled(isDiagnosingDuplicates || appState.isDatabaseCleanupRunning)
+                            
+                            if isDiagnosingDuplicates {
+                                HStack {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                        .padding(.trailing, 4)
+                                    
+                                    Text("Analyzing database...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            
+                            if showDiagnosticResults {
+                                Text("Diagnostics complete! Check console output for results.")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            }
+                            
+                            Text("This checks for duplicate readings in the database without modifying any data. Results are displayed in the console logs.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Divider()
+                        
+                        // Database cleanup button
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button(action: {
+                                showCleanupConfirmation = true
+                            }) {
+                                Text("Clean Up Duplicate Readings")
+                                    .frame(minWidth: 220)
+                            }
+                            .disabled(isDiagnosingDuplicates || appState.isDatabaseCleanupRunning)
+                            
+                            if appState.isDatabaseCleanupRunning {
+                                HStack {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                        .padding(.trailing, 4)
+                                    
+                                    Text("Cleaning up database...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            
+                            if let lastResult = appState.lastCleanupResult {
+                                switch lastResult {
+                                case .success(let uniqueCount, let duplicatesRemoved, _):
+                                    Text("Cleanup successful! Kept \(uniqueCount) unique readings, removed \(duplicatesRemoved) duplicates.")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                case .failure(let error):
+                                    Text("Cleanup failed: \(error)")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                }
+                            }
+                            
+                            Text("This removes duplicate readings from the database while preserving one reading per timestamp. A backup is created first.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding()
+                .background(Material.regularMaterial)
+                .cornerRadius(8)
+            }
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+    
+    // MARK: - Key Monitoring
+    
+    private func setupKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
+            // First shortcut: Shift+H
+            if event.modifierFlags.contains(.shift) && event.charactersIgnoringModifiers?.lowercased() == "h" {
+                self.handleSecretKeyCombo()
+                // Return nil to prevent further processing of this event
+                return nil
+            }
+            
+            // Alternative shortcut: Option+D (for "Diagnostics")
+            if event.modifierFlags.contains(.option) && event.charactersIgnoringModifiers?.lowercased() == "d" {
+                self.handleSecretKeyCombo()
+                return nil
+            }
+            
+            return event
+        }
+    }
+    
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+    }
+    
+    private func handleSecretKeyCombo() {
+        // Toggle advanced options with animation
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            showAdvancedOptions.toggle()
+        }
+        
+        // Log to console for debugging
+        print("🔧 Advanced diagnostics options \(showAdvancedOptions ? "shown" : "hidden") - Use Shift+H or Option+D to toggle")
     }
 }
 
