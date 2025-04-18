@@ -822,12 +822,29 @@ struct DiabetesMonitorApp: App {
                     }
                 }
         } label: {
-            Image(systemName: "heart.fill")
-                .imageScale(.medium)
-                .foregroundColor(.red)
-                .onAppear {
-                    print("❤️ Menu bar icon appeared")
+            if let reading = appState.currentGlucoseReading {
+                HStack(spacing: 4) {
+                    Image(systemName: "heart.fill")
+                        .imageScale(.medium)
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(reading.rangeStatus.color)
+                    
+                    Text(String(format: "%.1f", reading.displayValue))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(reading.rangeStatus.color)
                 }
+                .onAppear {
+                    print("❤️ Menu bar icon appeared with glucose value")
+                }
+            } else {
+                Image(systemName: "heart.fill")
+                    .imageScale(.medium)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.gray)
+                    .onAppear {
+                        print("❤️ Menu bar icon appeared (no glucose data)")
+                    }
+            }
         }
         .menuBarExtraStyle(.window)
     }
