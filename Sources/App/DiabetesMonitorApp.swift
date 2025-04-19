@@ -788,7 +788,7 @@ struct DiabetesMonitorApp: App {
         MenuBarExtra(isInserted: .constant(true)) {
             MenuBarView()
                 .environmentObject(appState)
-                .frame(maxWidth: 300)
+                .frame(width: 280)
                 .onAppear {
                     print("📊 Menu bar view appeared")
                     
@@ -846,7 +846,6 @@ struct DiabetesMonitorApp: App {
                     }
             }
         }
-        .menuBarExtraStyle(.window)
     }
     
     private func showNativeLoginWindow() {

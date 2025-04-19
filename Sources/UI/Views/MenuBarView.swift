@@ -52,6 +52,7 @@ struct MenuBarView: View {
                 // Footer
                 footerView
             }
+            .padding(.horizontal, 0) // Ensure no horizontal padding
             
             // Invisible view on top that helps prevent accidental dismissal
             TapToHoldView()
@@ -65,21 +66,6 @@ struct MenuBarView: View {
         .onTapGesture {
             // This empty gesture handler prevents taps from closing the menu
             print("🍔 Tap detected in menu - preventing propagation")
-        }
-        .toast() // Add toast support
-        .onReceive(appState.$lastRefreshResult) { newValue in
-            print("🔔 TOAST MenuBarView: Refresh result changed to \(newValue)")
-            // Show toast based on refresh result
-            if case .success(let count) = newValue {
-                print("🔔 TOAST MenuBarView: Showing success toast for \(count) readings")
-                toastManager.showSuccess("Successfully added \(count) new reading\(count == 1 ? "" : "s")")
-            } else if case .upToDate = newValue {
-                print("🔔 TOAST MenuBarView: Showing up-to-date toast")
-                toastManager.showInfo("Already up to date with latest readings")
-            } else if case .error(let error) = newValue {
-                print("🔔 TOAST MenuBarView: Showing error toast: \(error.localizedDescription)")
-                toastManager.showError("Error: \(error.localizedDescription)")
-            }
         }
         .onAppear {
             print("🍔 MenuBarView appeared with instance ID: \(instanceID)")
@@ -142,67 +128,79 @@ struct MenuBarView: View {
     }
     
     private func currentReadingHeader(_ reading: GlucoseReading) -> some View {
-        VStack(spacing: 8) {
-            Text("Current Glucose")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.secondary)
-                .padding(.top, 12)
+        ZStack {
+            // Full-width background at the bottom layer
+            reading.rangeStatus.color.opacity(0.07)
             
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .trailing) {
-                    Text(String(format: "%.1f", reading.displayValue))
-                        .font(.system(size: 40, weight: .bold, design: .rounded))
-                        .foregroundColor(reading.rangeStatus.color)
-                        .contentTransition(.numericText())
-                        .shadow(color: reading.rangeStatus.color.opacity(0.4), radius: 1)
-                    
-                    Text(reading.displayUnit)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+            // Content with proper padding on top
+            VStack(spacing: 8) {
+                Text("Current Glucose")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 12)
                 
-                Divider()
-                    .frame(height: 40)
-                
-                VStack(alignment: .leading) {
-                    HStack(spacing: 4) {
-                        Image(systemName: reading.trend.icon)
-                            .symbolEffect(.pulse, options: .repeating, value: reading.isInRange ? false : true)
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .trailing) {
+                        Text(String(format: "%.1f", reading.displayValue))
+                            .font(.system(size: 40, weight: .bold, design: .rounded))
                             .foregroundColor(reading.rangeStatus.color)
-                        Text(reading.trend.description)
+                            .contentTransition(.numericText())
+                            .shadow(color: reading.rangeStatus.color.opacity(0.4), radius: 1)
+                        
+                        Text(reading.displayUnit)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    .foregroundColor(reading.rangeStatus.color)
-                    .font(.system(size: 15, weight: .medium))
                     
-                    Text(formatTime(reading.timestamp))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Divider()
+                        .frame(height: 40)
+                    
+                    VStack(alignment: .leading) {
+                        HStack(spacing: 4) {
+                            Image(systemName: reading.trend.icon)
+                                .symbolEffect(.pulse, options: .repeating, value: reading.isInRange ? false : true)
+                                .foregroundColor(reading.rangeStatus.color)
+                            Text(reading.trend.description)
+                        }
+                        .foregroundColor(reading.rangeStatus.color)
+                        .font(.system(size: 15, weight: .medium))
+                        
+                        Text(formatTime(reading.timestamp))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
+                .padding(.bottom, 12)
             }
-            .padding(.bottom, 12)
+            .padding(.horizontal, 16)
         }
         .frame(maxWidth: .infinity)
-        .background(
-            reading.rangeStatus.color.opacity(0.07)
-        )
+        .padding(.horizontal, -8)
     }
     
     private func noDataHeader() -> some View {
-        VStack(spacing: 5) {
-            Image(systemName: "exclamationmark.circle")
-                .font(.title2)
-                .symbolEffect(.pulse)
+        ZStack {
+            // Full-width background at the bottom layer
+            Color.orange.opacity(0.1)
             
-            Text("No Data Available")
-                .font(.headline)
-            
-            Text("Tap Refresh to update")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            // Content with proper padding on top
+            VStack(spacing: 5) {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.title2)
+                    .symbolEffect(.pulse)
+                
+                Text("No Data Available")
+                    .font(.headline)
+                
+                Text("Tap Refresh to update")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 15)
+            .padding(.horizontal, 16)
         }
-        .padding(.vertical, 15)
         .frame(maxWidth: .infinity)
-        .background(Color.orange.opacity(0.1))
+        .padding(.horizontal, -8)
     }
     
     private var menuItems: some View {
