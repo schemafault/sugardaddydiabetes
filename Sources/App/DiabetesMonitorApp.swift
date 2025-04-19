@@ -1679,18 +1679,38 @@ class AppState: ObservableObject {
     private func loadPatientProfile() {
         if let profile = coreDataManager.fetchPatientProfile() {
             self.patientProfile = profile
-            print("📋 Loaded patient profile: \(profile.name)")
+            print("📋 Loaded patient profile: \(profile.name ?? "Unnamed")")
         } else {
-            // Create a default profile if none exists
-            let defaultProfile = PatientProfile(id: UUID().uuidString)
-            self.patientProfile = defaultProfile
+            // Create a default profile with Core Data
+            let newId = UUID().uuidString
+            coreDataManager.savePatientProfile(
+                id: newId,
+                name: nil,
+                dateOfBirth: nil, 
+                weight: nil,
+                weightUnit: nil,
+                insulinType: nil,
+                insulinDose: nil,
+                otherMedications: nil
+            )
+            // Fetch the newly created profile
+            self.patientProfile = coreDataManager.fetchPatientProfile()
             print("📋 Created default patient profile")
         }
     }
     
     // Save patient profile to CoreData
     func savePatientProfile(_ profile: PatientProfile) {
-        coreDataManager.savePatientProfile(profile)
+        coreDataManager.savePatientProfile(
+            id: profile.id ?? UUID().uuidString,
+            name: profile.name,
+            dateOfBirth: profile.dateOfBirth,
+            weight: profile.weight,
+            weightUnit: profile.weightUnit,
+            insulinType: profile.insulinType,
+            insulinDose: profile.insulinDose,
+            otherMedications: profile.otherMedications
+        )
         self.patientProfile = profile
     }
     
@@ -1704,40 +1724,54 @@ class AppState: ObservableObject {
         insulinDose: String? = nil,
         otherMedications: String? = nil
     ) {
-        // Start with current profile or create a new one if none exists
-        var updatedProfile = self.patientProfile ?? PatientProfile(id: UUID().uuidString)
-        
-        // Update fields if provided
-        if let name = name {
-            updatedProfile.name = name
+        if let currentProfile = self.patientProfile {
+            // Update fields if provided
+            if let name = name {
+                currentProfile.name = name
+            }
+            
+            if let dateOfBirth = dateOfBirth {
+                currentProfile.dateOfBirth = dateOfBirth
+            }
+            
+            if let weight = weight {
+                currentProfile.weight = weight
+            }
+            
+            if let weightUnit = weightUnit {
+                currentProfile.weightUnit = weightUnit
+            }
+            
+            if let insulinType = insulinType {
+                currentProfile.insulinType = insulinType
+            }
+            
+            if let insulinDose = insulinDose {
+                currentProfile.insulinDose = insulinDose
+            }
+            
+            if let otherMedications = otherMedications {
+                currentProfile.otherMedications = otherMedications
+            }
+            
+            // Save updated profile
+            savePatientProfile(currentProfile)
+        } else {
+            // Create a new profile if none exists
+            let id = UUID().uuidString
+            coreDataManager.savePatientProfile(
+                id: id,
+                name: name,
+                dateOfBirth: dateOfBirth,
+                weight: weight,
+                weightUnit: weightUnit,
+                insulinType: insulinType,
+                insulinDose: insulinDose,
+                otherMedications: otherMedications
+            )
+            // Fetch the newly created profile
+            self.patientProfile = coreDataManager.fetchPatientProfile()
         }
-        
-        if let dateOfBirth = dateOfBirth {
-            updatedProfile.dateOfBirth = dateOfBirth
-        }
-        
-        if let weight = weight {
-            updatedProfile.weight = weight
-        }
-        
-        if let weightUnit = weightUnit {
-            updatedProfile.weightUnit = weightUnit
-        }
-        
-        if let insulinType = insulinType {
-            updatedProfile.insulinType = insulinType
-        }
-        
-        if let insulinDose = insulinDose {
-            updatedProfile.insulinDose = insulinDose
-        }
-        
-        if let otherMedications = otherMedications {
-            updatedProfile.otherMedications = otherMedications
-        }
-        
-        // Save updated profile
-        savePatientProfile(updatedProfile)
     }
     
     // Generate export data including patient profile and glucose readings
@@ -1749,7 +1783,42 @@ class AppState: ObservableObject {
         
         // Add patient profile if available
         if let profile = patientProfile {
-            exportData["patientProfile"] = profile.exportDictionary
+            // Create a dictionary from PatientProfile properties directly
+            var profileDict: [String: Any] = [
+                "id": profile.id ?? UUID().uuidString
+            ]
+            
+            if let name = profile.name {
+                profileDict["name"] = name
+            }
+            
+            if let dateOfBirth = profile.dateOfBirth {
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyy-MM-dd"
+                profileDict["dateOfBirth"] = dateFormatter.string(from: dateOfBirth)
+            }
+            
+            if profile.weight > 0 {
+                profileDict["weight"] = profile.weight
+            }
+            
+            if let weightUnit = profile.weightUnit {
+                profileDict["weightUnit"] = weightUnit
+            }
+            
+            if let insulinType = profile.insulinType {
+                profileDict["insulinType"] = insulinType
+            }
+            
+            if let insulinDose = profile.insulinDose {
+                profileDict["insulinDose"] = insulinDose
+            }
+            
+            if let otherMedications = profile.otherMedications {
+                profileDict["otherMedications"] = otherMedications
+            }
+            
+            exportData["patientProfile"] = profileDict
         }
         
         // Add glucose readings

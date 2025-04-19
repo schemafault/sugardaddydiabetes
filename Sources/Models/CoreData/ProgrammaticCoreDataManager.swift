@@ -590,70 +590,86 @@ class ProgrammaticCoreDataManager {
     
     // MARK: - Patient Profile Methods
     
-    /// Save a patient profile to CoreData
-    func savePatientProfile(_ profile: PatientProfile) {
+    /// Save or update a patient profile in CoreData
+    func savePatientProfile(id: String, name: String?, dateOfBirth: Date?, weight: Double?, weightUnit: String?, insulinType: String?, insulinDose: String?, otherMedications: String?) {
         let context = persistentContainer.viewContext
-        
+
         // Check if profile already exists
-        let fetchRequest: NSFetchRequest<NSManagedObject> = NSFetchRequest(entityName: "PatientProfile")
-        fetchRequest.predicate = NSPredicate(format: "id == %@", profile.id)
-        
+        let fetchRequest: NSFetchRequest<PatientProfile> = PatientProfile.fetchRequest() // Use generated fetch request
+        fetchRequest.predicate = NSPredicate(format: "id == %@", id)
+
         do {
             let existingProfiles = try context.fetch(fetchRequest)
-            
-            let profileEntity: NSManagedObject
-            
+
+            let profileEntity: PatientProfile // Use the generated class type
+
             if let existingProfile = existingProfiles.first {
                 // Update existing profile
                 profileEntity = existingProfile
             } else {
                 // Create new profile
-                profileEntity = NSEntityDescription.insertNewObject(forEntityName: "PatientProfile", into: context)
-                profileEntity.setValue(profile.id, forKey: "id")
+                profileEntity = PatientProfile(context: context) // Use generated initializer
+                profileEntity.id = id
             }
-            
+
             // Set or update values
-            profileEntity.setValue(profile.name, forKey: "name")
-            profileEntity.setValue(profile.dateOfBirth, forKey: "dateOfBirth")
-            profileEntity.setValue(profile.weight, forKey: "weight")
-            profileEntity.setValue(profile.weightUnit, forKey: "weightUnit")
-            profileEntity.setValue(profile.insulinType, forKey: "insulinType")
-            profileEntity.setValue(profile.insulinDose, forKey: "insulinDose")
-            profileEntity.setValue(profile.otherMedications, forKey: "otherMedications")
-            
+            profileEntity.name = name
+            profileEntity.dateOfBirth = dateOfBirth
+            // Handle Double for weight - Core Data generated class might use NSDecimalNumber or Double directly. Assuming Double for now.
+            // If 'weight' is primitive Double in Core Data, direct assignment is fine.
+            // If it's non-primitive (e.g., NSDecimalNumber), conversion might be needed. Check generated class if build fails here.
+            if let weight = weight {
+                 profileEntity.weight = weight // Assuming weight is Double or NSNumber
+            } else {
+                 profileEntity.weight = 0 // Or handle nil appropriately, maybe don't set? Needs decision based on model logic. Setting to 0 for now.
+            }
+            profileEntity.weightUnit = weightUnit
+            profileEntity.insulinType = insulinType
+            profileEntity.insulinDose = insulinDose
+            profileEntity.otherMedications = otherMedications
+
             // Save the context
             try context.save()
-            print("✅ Saved patient profile with ID: \(profile.id)")
+            print("✅ Saved patient profile with ID: \(id)") // id is non-optional here
         } catch {
             print("❌ Failed to save patient profile: \(error)")
         }
     }
-    
+
     /// Fetch the patient profile from CoreData
     /// Since this is a single-user app, we'll just fetch the first profile found
-    func fetchPatientProfile() -> PatientProfile? {
+    func fetchPatientProfile() -> PatientProfile? { // Return the generated NSManagedObject subclass
         let context = persistentContainer.viewContext
-        let fetchRequest: NSFetchRequest<NSManagedObject> = NSFetchRequest(entityName: "PatientProfile")
-        
+        let fetchRequest: NSFetchRequest<PatientProfile> = PatientProfile.fetchRequest() // Use generated fetch request
+
+        // Optional: Add sorting if multiple profiles could somehow exist and you want a specific one
+        // fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \PatientProfile.creationDate, ascending: true)]
+
         do {
             let results = try context.fetch(fetchRequest)
-            
+
             guard let profileEntity = results.first else {
                 print("ℹ️ No patient profile found")
                 return nil
             }
-            
+
+            // Return the managed object directly
+            return profileEntity
+
+            // No need to manually map properties anymore
+            /*
             // Extract values from the entity
-            let id = profileEntity.value(forKey: "id") as? String ?? UUID().uuidString
-            let name = profileEntity.value(forKey: "name") as? String ?? ""
-            let dateOfBirth = profileEntity.value(forKey: "dateOfBirth") as? Date
-            let weight = profileEntity.value(forKey: "weight") as? Double
-            let weightUnit = profileEntity.value(forKey: "weightUnit") as? String
-            let insulinType = profileEntity.value(forKey: "insulinType") as? String
-            let insulinDose = profileEntity.value(forKey: "insulinDose") as? String
-            let otherMedications = profileEntity.value(forKey: "otherMedications") as? String
-            
+            let id = profileEntity.id ?? UUID().uuidString // Access properties directly
+            let name = profileEntity.name ?? ""
+            let dateOfBirth = profileEntity.dateOfBirth
+            let weight = profileEntity.weight // Assuming Double
+            let weightUnit = profileEntity.weightUnit
+            let insulinType = profileEntity.insulinType
+            let insulinDose = profileEntity.insulinDose
+            let otherMedications = profileEntity.otherMedications
+
             // Create and return the profile
+            // This intermediate struct is no longer needed if it was defined in the deleted file
             return PatientProfile(
                 id: id,
                 name: name,
@@ -664,6 +680,7 @@ class ProgrammaticCoreDataManager {
                 insulinDose: insulinDose,
                 otherMedications: otherMedications
             )
+            */
         } catch {
             print("❌ Failed to fetch patient profile: \(error)")
             return nil

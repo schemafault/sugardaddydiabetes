@@ -305,21 +305,23 @@ struct SettingsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    if let profile = appState.patientProfile, !profile.name.isEmpty {
+                    if let profile = appState.patientProfile, let name = profile.name, !name.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 VStack(alignment: .leading) {
-                                    Text(profile.name)
+                                    Text(name)
                                         .font(.headline)
                                     
-                                    if let age = profile.age {
+                                    if let dateOfBirth = profile.dateOfBirth {
+                                        let age = Calendar.current.dateComponents([.year], from: dateOfBirth, to: Date()).year ?? 0
                                         Text("Age: \(age)")
                                             .font(.subheadline)
                                             .foregroundColor(.secondary)
                                     }
                                     
-                                    if let formattedWeight = profile.formattedWeight {
-                                        Text("Weight: \(formattedWeight)")
+                                    if profile.weight > 0 {
+                                        let weightUnit = profile.weightUnit ?? "kg"
+                                        Text("Weight: \(String(format: "%.1f", profile.weight)) \(weightUnit)")
                                             .font(.subheadline)
                                             .foregroundColor(.secondary)
                                     }
@@ -656,7 +658,7 @@ struct SettingsView: View {
     // Load patient profile data into state variables
     private func loadPatientProfile() {
         if let profile = appState.patientProfile {
-            patientName = profile.name
+            patientName = profile.name ?? ""
             
             if let dob = profile.dateOfBirth {
                 dateOfBirth = dob
@@ -666,11 +668,8 @@ struct SettingsView: View {
                 dateOfBirth = defaultDate
             }
             
-            if let profileWeight = profile.weight {
-                weight = String(profileWeight)
-            } else {
-                weight = ""
-            }
+            // Use normal property access for non-optional Double
+            weight = profile.weight > 0 ? String(profile.weight) : ""
             
             weightUnit = profile.weightUnit ?? "kg"
             insulinType = profile.insulinType ?? ""
@@ -888,8 +887,9 @@ struct SettingsView: View {
             let dateString = dateFormatter.string(from: Date())
             
             // Set suggested filename
-            let patientName = appState.patientProfile?.name.replacingOccurrences(of: " ", with: "_") ?? "patient"
-            savePanel.nameFieldStringValue = "diabetes_data_\(patientName)_\(dateString).json"
+            let patientName = appState.patientProfile?.name ?? "patient"
+            let safePatientName = patientName.replacingOccurrences(of: " ", with: "_")
+            savePanel.nameFieldStringValue = "diabetes_data_\(safePatientName)_\(dateString).json"
             
             // Show the save panel as a window-independent sheet
             savePanel.begin { response in
