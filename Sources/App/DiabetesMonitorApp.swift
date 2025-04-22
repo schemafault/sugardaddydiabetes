@@ -1778,7 +1778,7 @@ class AppState: ObservableObject {
         }
     }
     
-    // Generate export data including patient profile and glucose readings
+    // Generate export data including patient profile, glucose readings, and insulin shots
     func generateMedicalExportData() -> [String: Any] {
         var exportData: [String: Any] = [
             "exportDate": Date(),
@@ -1840,6 +1840,29 @@ class AppState: ObservableObject {
         }
         
         exportData["glucoseReadings"] = readingsData
+        
+        // Add insulin shots
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        
+        let insulinShotsData = insulinHistory.map { shot -> [String: Any] in
+            var shotDict: [String: Any] = [
+                "id": shot.id.uuidString,
+                "timestamp": dateFormatter.string(from: shot.timestamp)
+            ]
+            
+            if let dosage = shot.dosage {
+                shotDict["dosage"] = dosage
+            }
+            
+            if let notes = shot.notes {
+                shotDict["notes"] = notes
+            }
+            
+            return shotDict
+        }
+        
+        exportData["insulinShots"] = insulinShotsData
         
         return exportData
     }

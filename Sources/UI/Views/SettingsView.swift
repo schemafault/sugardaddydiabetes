@@ -518,7 +518,23 @@ struct SettingsView: View {
     
     private var dataManagementSection: some View {
         SettingsSection(title: "Data Management", icon: "externaldrive") {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 20) {
+                // Export Medical Data button with format selection
+                Button(action: { showExportOptions() }) {
+                    HStack {
+                        Image(systemName: "square.and.arrow.up")
+                        Text("Export Medical Data")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding()
+                    .background(Material.thin)
+                    .foregroundColor(.accentColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .help("Export your glucose readings and insulin data")
+                
+                // Clear All Data button
                 Button(action: { showingDeletionConfirmation = true }) {
                     HStack {
                         Image(systemName: "trash")
