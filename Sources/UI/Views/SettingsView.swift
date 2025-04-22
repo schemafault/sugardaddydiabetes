@@ -312,16 +312,14 @@ struct SettingsView: View {
                                     Text(name)
                                         .font(.headline)
                                     
-                                    if let dateOfBirth = profile.dateOfBirth {
-                                        let age = Calendar.current.dateComponents([.year], from: dateOfBirth, to: Date()).year ?? 0
+                                    if let _ = profile.dateOfBirth, let age = profile.formattedAge {
                                         Text("Age: \(age)")
                                             .font(.subheadline)
                                             .foregroundColor(.secondary)
                                     }
                                     
-                                    if profile.weight > 0 {
-                                        let weightUnit = profile.weightUnit ?? "kg"
-                                        Text("Weight: \(String(format: "%.1f", profile.weight)) \(weightUnit)")
+                                    if let formattedWeight = profile.formattedWeight {
+                                        Text("Weight: \(formattedWeight)")
                                             .font(.subheadline)
                                             .foregroundColor(.secondary)
                                     }
@@ -668,8 +666,8 @@ struct SettingsView: View {
                 dateOfBirth = defaultDate
             }
             
-            // Use normal property access for non-optional Double
-            weight = profile.weight > 0 ? String(profile.weight) : ""
+            // Handle optional Double value with nil coalescing
+            weight = (profile.weight ?? 0) > 0 ? String(profile.weight ?? 0) : ""
             
             weightUnit = profile.weightUnit ?? "kg"
             insulinType = profile.insulinType ?? ""

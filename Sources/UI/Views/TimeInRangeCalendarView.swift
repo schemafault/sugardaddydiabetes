@@ -426,6 +426,15 @@ struct DayDetailView: View {
     @State private var cachedVariability: String = "N/A"
     @State private var metricsCalculated = false
     
+    // Add state variables for insulin shot input
+    @State private var insulinTime: Date = Date()
+    @State private var insulinDosage: String = ""
+    @State private var insulinNotes: String = ""
+    @State private var insulinShots: [InsulinShot] = []
+    @State private var showingDeleteConfirmation = false
+    @State private var shotToDelete: UUID? = nil
+    @State private var isLoggingShot = false
+    
     // Get readings for the selected day - only calculated once
     private var dayReadings: [GlucoseReading] {
         if !cachedReadings.isEmpty {
@@ -493,6 +502,17 @@ struct DayDetailView: View {
         return cachedAverage
     }
     
+    // Load insulin shots for this day
+    private func loadInsulinShots() {
+        insulinShots = appState.getInsulinShots(forDate: date)
+        
+        // Set default insulin time to noon of the selected date if no shots exist yet
+        if insulinShots.isEmpty {
+            let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: date) ?? date
+            insulinTime = noon
+        }
+    }
+    
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -528,6 +548,9 @@ struct DayDetailView: View {
                         // Chart of readings for the day
                         dayChartView
                         
+                        // Insulin shots section
+                        insulinShotsView
+                        
                         // Note about number of readings instead of full list
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Summary")
@@ -556,6 +579,24 @@ struct DayDetailView: View {
                         dismiss()
                     }
                 }
+            }
+            .onAppear {
+                loadInsulinShots()
+            }
+            .alert("Delete Insulin Shot", isPresented: $showingDeleteConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    if let id = shotToDelete {
+                        Task {
+                            let success = await appState.deleteInsulinShot(id: id)
+                            if success {
+                                loadInsulinShots()
+                            }
+                        }
+                    }
+                }
+            } message: {
+                Text("Are you sure you want to delete this insulin shot? This action cannot be undone.")
             }
         }
     }
@@ -704,58 +745,163 @@ struct DayDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
-    // List of all readings for the day
-    private var readingsListView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("All Readings")
+    // New view for insulin shots section
+    private var insulinShotsView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Insulin Shots")
                 .font(.headline)
-                .padding(.horizontal)
             
-            if dayReadings.isEmpty {
-                Text("No readings available for this day")
-                    .foregroundColor(.secondary)
-                    .padding()
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(dayReadings) { reading in
-                        readingRow(reading)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                        
-                        if reading.id != dayReadings.last?.id {
-                            Divider()
-                                .padding(.horizontal)
-                        }
+            // Form for logging a new shot
+            VStack(spacing: 16) {
+                // Time picker
+                DatePicker("Time", selection: $insulinTime, displayedComponents: .hourAndMinute)
+                    .datePickerStyle(.automatic)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                
+                // Dosage input
+                HStack {
+                    Text("Dosage")
+                        .foregroundColor(.secondary)
+                    
+                    TextField("Optional", text: $insulinDosage)
+                    
+                    Text("units")
+                        .foregroundColor(.secondary)
+                }
+                
+                // Notes input
+                HStack {
+                    Text("Notes")
+                        .foregroundColor(.secondary)
+                    
+                    TextField("Optional", text: $insulinNotes)
+                }
+                
+                // Log button
+                Button(action: {
+                    logInsulinShot()
+                }) {
+                    if isLoggingShot {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                    } else {
+                        Text("Log Insulin Shot")
+                            .frame(maxWidth: .infinity)
                     }
                 }
-                .background(Material.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .buttonStyle(.borderedProminent)
+                .disabled(isLoggingShot)
+            }
+            .padding()
+            .background(Color.secondary.opacity(0.1))
+            .cornerRadius(12)
+            
+            // Display shots for this day if there are any
+            if !insulinShots.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Logged shots for this day")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    ForEach(insulinShots) { shot in
+                        HStack {
+                            Image(systemName: "clock")
+                                .foregroundColor(.secondary)
+                            
+                            Text(formatTime(shot.timestamp))
+                                .foregroundColor(.primary)
+                            
+                            Spacer()
+                            
+                            if let dosage = shot.dosage {
+                                Text("\(String(format: "%.1f", dosage)) units")
+                                    .foregroundColor(.primary)
+                            } else {
+                                Text("No dosage logged")
+                                    .foregroundColor(.secondary)
+                                    .italic()
+                            }
+                            
+                            // Delete button
+                            Button(action: {
+                                shotToDelete = shot.id
+                                showingDeleteConfirmation = true
+                            }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
+                        
+                        if let notes = shot.notes, !notes.isEmpty {
+                            Text(notes)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.leading)
+                                .padding(.bottom, 4)
+                        }
+                        
+                        Divider()
+                    }
+                }
+                .padding(.top, 8)
             }
         }
+        .padding()
+        .background(Material.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
-    // Individual reading row
-    private func readingRow(_ reading: GlucoseReading) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(formatTime(reading.timestamp))
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+    // Function to save the insulin shot
+    private func logInsulinShot() {
+        // Validate dosage if provided
+        var dosageValue: Double? = nil
+        if !insulinDosage.isEmpty {
+            if let parsed = Double(insulinDosage) {
+                dosageValue = parsed
+            } else {
+                // Handle invalid input - could show an alert here
+                print("Invalid dosage value")
+                return
             }
+        }
+        
+        // Set the time to be on the selected date (combine date and time)
+        let startOfDay = calendar.startOfDay(for: date)
+        let timeComponents = calendar.dateComponents([.hour, .minute], from: insulinTime)
+        let combinedDateTime = calendar.date(bySettingHour: timeComponents.hour ?? 0,
+                                           minute: timeComponents.minute ?? 0,
+                                           second: 0,
+                                           of: startOfDay) ?? date
+        
+        isLoggingShot = true
+        
+        // Save the insulin shot
+        Task {
+            let success = await appState.logInsulinShot(
+                timestamp: combinedDateTime,
+                dosage: dosageValue,
+                notes: insulinNotes.isEmpty ? nil : insulinNotes
+            )
             
-            Spacer()
-            
-            Text(String(format: "%.1f %@", reading.displayValue, reading.displayUnit))
-                .font(.system(.headline, design: .rounded))
-                .foregroundColor(reading.rangeStatus.color)
-            
-            HStack(spacing: 8) {
-                Image(systemName: reading.trend.icon)
-                    .foregroundColor(reading.rangeStatus.color)
+            // Reset form and refresh shots list on success
+            await MainActor.run {
+                isLoggingShot = false
                 
-                Circle()
-                    .fill(reading.rangeStatus.color)
-                    .frame(width: 10, height: 10)
+                if success {
+                    // Reset form
+                    insulinDosage = ""
+                    insulinNotes = ""
+                    // Don't reset time, it's convenient to keep it
+                    
+                    // Refresh shots list
+                    loadInsulinShots()
+                } else {
+                    // Handle error - could show an alert here
+                    print("Failed to save insulin shot")
+                }
             }
         }
     }

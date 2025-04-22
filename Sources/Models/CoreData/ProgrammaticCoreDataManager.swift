@@ -3,6 +3,9 @@ import CoreData
 
 // This is an alternative CoreData manager that creates the model programmatically
 // instead of relying on the .xcdatamodeld file
+// NOTE: The model entities (GlucoseReadingEntity, PatientProfile, InsulinShotEntity) are now also 
+// defined in the DiabetesData.xcdatamodeld file. This programmatic approach serves as a fallback
+// and ensures compatibility with both approaches.
 class ProgrammaticCoreDataManager {
     static let shared = ProgrammaticCoreDataManager()
     
@@ -125,8 +128,46 @@ class ProgrammaticCoreDataManager {
         let patientUniqueConstraint = [patientIdAttribute]
         patientEntity.uniquenessConstraints = [patientUniqueConstraint]
         
+        // Create the InsulinShotEntity
+        let insulinShotEntity = NSEntityDescription()
+        insulinShotEntity.name = "InsulinShotEntity"
+        insulinShotEntity.managedObjectClassName = "InsulinShotEntity"
+        
+        // Create attributes for insulin shot entity
+        let shotIdAttribute = NSAttributeDescription()
+        shotIdAttribute.name = "id"
+        shotIdAttribute.attributeType = .stringAttributeType
+        shotIdAttribute.isOptional = false
+        
+        let shotTimestampAttribute = NSAttributeDescription()
+        shotTimestampAttribute.name = "timestamp"
+        shotTimestampAttribute.attributeType = .dateAttributeType
+        shotTimestampAttribute.isOptional = false
+        
+        let dosageAttribute = NSAttributeDescription()
+        dosageAttribute.name = "dosage"
+        dosageAttribute.attributeType = .doubleAttributeType
+        dosageAttribute.isOptional = true
+        
+        let notesAttribute = NSAttributeDescription()
+        notesAttribute.name = "notes"
+        notesAttribute.attributeType = .stringAttributeType
+        notesAttribute.isOptional = true
+        
+        // Add attributes to insulin shot entity
+        insulinShotEntity.properties = [
+            shotIdAttribute,
+            shotTimestampAttribute,
+            dosageAttribute,
+            notesAttribute
+        ]
+        
+        // Add uniqueness constraint for insulin shot
+        let shotUniqueConstraint = [shotIdAttribute]
+        insulinShotEntity.uniquenessConstraints = [shotUniqueConstraint]
+        
         // Add entities to model
-        model.entities = [glucoseEntity, patientEntity]
+        model.entities = [glucoseEntity, patientEntity, insulinShotEntity]
         
         return model
     }
@@ -595,81 +636,68 @@ class ProgrammaticCoreDataManager {
         let context = persistentContainer.viewContext
 
         // Check if profile already exists
-        let fetchRequest: NSFetchRequest<PatientProfile> = PatientProfile.fetchRequest() // Use generated fetch request
+        let fetchRequest: NSFetchRequest<NSManagedObject> = NSFetchRequest(entityName: "PatientProfile")
         fetchRequest.predicate = NSPredicate(format: "id == %@", id)
 
         do {
             let existingProfiles = try context.fetch(fetchRequest)
-
-            let profileEntity: PatientProfile // Use the generated class type
+            let profileEntity: NSManagedObject
 
             if let existingProfile = existingProfiles.first {
                 // Update existing profile
                 profileEntity = existingProfile
             } else {
                 // Create new profile
-                profileEntity = PatientProfile(context: context) // Use generated initializer
-                profileEntity.id = id
+                guard let entity = NSEntityDescription.entity(forEntityName: "PatientProfile", in: context) else {
+                    print("⚠️ Failed to get entity for PatientProfile")
+                    return
+                }
+                profileEntity = NSManagedObject(entity: entity, insertInto: context)
+                profileEntity.setValue(id, forKey: "id")
             }
 
             // Set or update values
-            profileEntity.name = name
-            profileEntity.dateOfBirth = dateOfBirth
-            // Handle Double for weight - Core Data generated class might use NSDecimalNumber or Double directly. Assuming Double for now.
-            // If 'weight' is primitive Double in Core Data, direct assignment is fine.
-            // If it's non-primitive (e.g., NSDecimalNumber), conversion might be needed. Check generated class if build fails here.
+            profileEntity.setValue(name, forKey: "name")
+            profileEntity.setValue(dateOfBirth, forKey: "dateOfBirth")
             if let weight = weight {
-                 profileEntity.weight = weight // Assuming weight is Double or NSNumber
-            } else {
-                 profileEntity.weight = 0 // Or handle nil appropriately, maybe don't set? Needs decision based on model logic. Setting to 0 for now.
+                profileEntity.setValue(weight, forKey: "weight")
             }
-            profileEntity.weightUnit = weightUnit
-            profileEntity.insulinType = insulinType
-            profileEntity.insulinDose = insulinDose
-            profileEntity.otherMedications = otherMedications
+            profileEntity.setValue(weightUnit, forKey: "weightUnit")
+            profileEntity.setValue(insulinType, forKey: "insulinType")
+            profileEntity.setValue(insulinDose, forKey: "insulinDose")
+            profileEntity.setValue(otherMedications, forKey: "otherMedications")
 
             // Save the context
             try context.save()
-            print("✅ Saved patient profile with ID: \(id)") // id is non-optional here
+            print("✅ Saved patient profile with ID: \(id)")
         } catch {
             print("❌ Failed to save patient profile: \(error)")
         }
     }
 
     /// Fetch the patient profile from CoreData
-    /// Since this is a single-user app, we'll just fetch the first profile found
-    func fetchPatientProfile() -> PatientProfile? { // Return the generated NSManagedObject subclass
+    func fetchPatientProfile() -> PatientProfile? {
         let context = persistentContainer.viewContext
-        let fetchRequest: NSFetchRequest<PatientProfile> = PatientProfile.fetchRequest() // Use generated fetch request
-
-        // Optional: Add sorting if multiple profiles could somehow exist and you want a specific one
-        // fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \PatientProfile.creationDate, ascending: true)]
+        let fetchRequest: NSFetchRequest<NSManagedObject> = NSFetchRequest(entityName: "PatientProfile")
 
         do {
             let results = try context.fetch(fetchRequest)
-
+            
             guard let profileEntity = results.first else {
                 print("ℹ️ No patient profile found")
                 return nil
             }
-
-            // Return the managed object directly
-            return profileEntity
-
-            // No need to manually map properties anymore
-            /*
-            // Extract values from the entity
-            let id = profileEntity.id ?? UUID().uuidString // Access properties directly
-            let name = profileEntity.name ?? ""
-            let dateOfBirth = profileEntity.dateOfBirth
-            let weight = profileEntity.weight // Assuming Double
-            let weightUnit = profileEntity.weightUnit
-            let insulinType = profileEntity.insulinType
-            let insulinDose = profileEntity.insulinDose
-            let otherMedications = profileEntity.otherMedications
-
-            // Create and return the profile
-            // This intermediate struct is no longer needed if it was defined in the deleted file
+            
+            // Extract values from the entity and create a PatientProfile struct
+            let id = profileEntity.value(forKey: "id") as? String ?? UUID().uuidString
+            let name = profileEntity.value(forKey: "name") as? String
+            let dateOfBirth = profileEntity.value(forKey: "dateOfBirth") as? Date
+            let weight = profileEntity.value(forKey: "weight") as? Double
+            let weightUnit = profileEntity.value(forKey: "weightUnit") as? String
+            let insulinType = profileEntity.value(forKey: "insulinType") as? String
+            let insulinDose = profileEntity.value(forKey: "insulinDose") as? String
+            let otherMedications = profileEntity.value(forKey: "otherMedications") as? String
+            
             return PatientProfile(
                 id: id,
                 name: name,
@@ -680,10 +708,121 @@ class ProgrammaticCoreDataManager {
                 insulinDose: insulinDose,
                 otherMedications: otherMedications
             )
-            */
         } catch {
             print("❌ Failed to fetch patient profile: \(error)")
             return nil
+        }
+    }
+    
+    // MARK: - Insulin Shot Methods
+    
+    // Save a new insulin shot to CoreData
+    func saveInsulinShot(id: UUID, timestamp: Date, dosage: Double?, notes: String?) -> Bool {
+        let context = persistentContainer.viewContext
+        
+        // Create a domain model first
+        let insulinShot = InsulinShot(id: id, timestamp: timestamp, dosage: dosage, notes: notes)
+        
+        do {
+            // Use the static helper method to create or update the entity
+            let _ = InsulinShotEntity.from(insulinShot: insulinShot, context: context)
+            
+            try context.save()
+            print("✅ Successfully saved insulin shot with id: \(id)")
+            return true
+        } catch {
+            print("❌ Failed to save insulin shot: \(error)")
+            return false
+        }
+    }
+    
+    // Fetch all insulin shots from CoreData
+    func fetchAllInsulinShots() -> [InsulinShot] {
+        let context = persistentContainer.viewContext
+        
+        let fetchRequest: NSFetchRequest<InsulinShotEntity> = InsulinShotEntity.fetchRequest()
+        // Sort by timestamp, newest first
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+        
+        do {
+            let insulinShotEntities = try context.fetch(fetchRequest)
+            
+            return insulinShotEntities.compactMap { entity in
+                return entity.toDomainModel()
+            }
+        } catch {
+            print("❌ Failed to fetch insulin shots: \(error)")
+            return []
+        }
+    }
+    
+    // Fetch insulin shots for a specific day
+    func fetchInsulinShots(forDate date: Date) -> [InsulinShot] {
+        let context = persistentContainer.viewContext
+        let calendar = Calendar.current
+        
+        // Get start and end of the specified day
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let fetchRequest: NSFetchRequest<InsulinShotEntity> = InsulinShotEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "timestamp >= %@ AND timestamp < %@", startOfDay as NSDate, endOfDay as NSDate)
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
+        
+        do {
+            let insulinShotEntities = try context.fetch(fetchRequest)
+            
+            return insulinShotEntities.compactMap { entity in
+                return entity.toDomainModel()
+            }
+        } catch {
+            print("❌ Failed to fetch insulin shots for date: \(error)")
+            return []
+        }
+    }
+    
+    // Fetch insulin shots for a date range
+    func fetchInsulinShots(fromDate: Date, toDate: Date) -> [InsulinShot] {
+        let context = persistentContainer.viewContext
+        
+        let fetchRequest: NSFetchRequest<InsulinShotEntity> = InsulinShotEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "timestamp >= %@ AND timestamp <= %@", fromDate as NSDate, toDate as NSDate)
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
+        
+        do {
+            let insulinShotEntities = try context.fetch(fetchRequest)
+            
+            return insulinShotEntities.compactMap { entity in
+                return entity.toDomainModel()
+            }
+        } catch {
+            print("❌ Failed to fetch insulin shots for date range: \(error)")
+            return []
+        }
+    }
+    
+    // Delete an insulin shot by ID
+    func deleteInsulinShot(id: UUID) -> Bool {
+        let context = persistentContainer.viewContext
+        
+        let fetchRequest: NSFetchRequest<InsulinShotEntity> = InsulinShotEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", id.uuidString)
+        
+        do {
+            let results = try context.fetch(fetchRequest)
+            
+            if let shotToDelete = results.first {
+                context.delete(shotToDelete)
+                try context.save()
+                print("🗑️ Successfully deleted insulin shot with id: \(id)")
+                return true
+            } else {
+                print("⚠️ No insulin shot found with id: \(id)")
+                return false
+            }
+        } catch {
+            print("❌ Failed to delete insulin shot: \(error)")
+            return false
         }
     }
 } 

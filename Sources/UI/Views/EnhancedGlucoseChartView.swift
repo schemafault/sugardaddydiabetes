@@ -12,6 +12,8 @@ struct EnhancedGlucoseChartView: View {
     @State private var showAverage: Bool = false
     @State private var isHovering: Bool = false
     @State private var selectedReading: GlucoseReading? = nil
+    @State private var showInsulinShots: Bool = true
+    @State private var hoveredInsulinShot: InsulinShot? = nil
     
     enum ChartType {
         case line
@@ -132,6 +134,25 @@ struct EnhancedGlucoseChartView: View {
         return averagePoints.sorted(by: { $0.time < $1.time })
     }
     
+    // Get insulin shots for the time range covered by the readings
+    private var insulinShotsInRange: [InsulinShot] {
+        guard !readings.isEmpty else { return [] }
+        
+        let oldestReading = readings.min { $0.timestamp < $1.timestamp }
+        let newestReading = readings.max { $0.timestamp < $1.timestamp }
+        
+        guard let start = oldestReading?.timestamp,
+              let end = newestReading?.timestamp else {
+            return []
+        }
+        
+        // Add a small buffer on both sides for better visualization
+        let startWithBuffer = start.addingTimeInterval(-60 * 60) // 1 hour before
+        let endWithBuffer = end.addingTimeInterval(60 * 60) // 1 hour after
+        
+        return appState.getInsulinShots(fromDate: startWithBuffer, toDate: endWithBuffer)
+    }
+    
     // Break up the body into smaller components
     var body: some View {
         VStack(spacing: 12) {
@@ -202,6 +223,14 @@ struct EnhancedGlucoseChartView: View {
             Spacer()
             
             controlsGroup
+            
+            if readings.count > 0 {
+                Toggle(isOn: $showInsulinShots) {
+                    Image(systemName: "syringe")
+                }
+                .toggleStyle(.button)
+                .help("Show/hide insulin shots")
+            }
         }
         .padding(.horizontal, 6)
     }
@@ -321,6 +350,37 @@ struct EnhancedGlucoseChartView: View {
                             .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
                     }
                 }
+                
+                // Add insulin shot indicators
+                if showInsulinShots {
+                    ForEach(insulinShotsInRange) { shot in
+                        RuleMark(
+                            x: .value("Insulin Shot", shot.timestamp)
+                        )
+                        .foregroundStyle(insulinShotColor(opacity: shot.id == hoveredInsulinShot?.id ? 0.7 : 0.4))
+                        .lineStyle(StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .annotation(position: .top) {
+                            if shot.id == hoveredInsulinShot?.id {
+                                VStack(alignment: .center, spacing: 4) {
+                                    Text("Insulin Shot")
+                                        .font(.caption2)
+                                        .bold()
+                                    
+                                    Text(formatTime(shot.timestamp))
+                                        .font(.caption2)
+                                    
+                                    if let dosage = shot.dosage {
+                                        Text("\(String(format: "%.1f", dosage)) units")
+                                            .font(.caption2)
+                                    }
+                                }
+                                .padding(6)
+                                .background(Material.regularMaterial)
+                                .cornerRadius(6)
+                            }
+                        }
+                    }
+                }
             } else {
                 // Bar chart with proper baseline and value labels
                 let shouldShowAllLabels = readings.count < 15 // Only show all labels if we have fewer than 15 readings
@@ -363,6 +423,37 @@ struct EnhancedGlucoseChartView: View {
                                         .fill(reading.rangeStatus.color.opacity(0.8))
                                         .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                                 )
+                        }
+                    }
+                }
+                
+                // Add insulin shot indicators
+                if showInsulinShots {
+                    ForEach(insulinShotsInRange) { shot in
+                        RuleMark(
+                            x: .value("Insulin Shot", shot.timestamp)
+                        )
+                        .foregroundStyle(insulinShotColor(opacity: shot.id == hoveredInsulinShot?.id ? 0.7 : 0.4))
+                        .lineStyle(StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .annotation(position: .top) {
+                            if shot.id == hoveredInsulinShot?.id {
+                                VStack(alignment: .center, spacing: 4) {
+                                    Text("Insulin Shot")
+                                        .font(.caption2)
+                                        .bold()
+                                    
+                                    Text(formatTime(shot.timestamp))
+                                        .font(.caption2)
+                                    
+                                    if let dosage = shot.dosage {
+                                        Text("\(String(format: "%.1f", dosage)) units")
+                                            .font(.caption2)
+                                    }
+                                }
+                                .padding(6)
+                                .background(Material.regularMaterial)
+                                .cornerRadius(6)
+                            }
                         }
                     }
                 }
@@ -533,39 +624,69 @@ struct EnhancedGlucoseChartView: View {
             Rectangle()
                 .fill(Color.clear)
                 .contentShape(Rectangle())
-                .onHover { hovering in
-                    isHovering = hovering
-                }
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
-                            handleDragGesture(value: value, geometry: geometry, proxy: proxy)
+                            // Find the x-coordinate in the chart coordinate space
+                            let x = value.location.x - geometry.frame(in: .local).origin.x
+                            
+                            // Find the reading closest to the hover position
+                            var closestReading: (reading: GlucoseReading, distance: CGFloat)? = nil
+                            
+                            for reading in readings {
+                                guard let xPosition = proxy.position(forX: reading.timestamp) else { continue }
+                                let distance = abs(xPosition - x)
+                                
+                                if let current = closestReading {
+                                    if distance < current.distance {
+                                        closestReading = (reading, distance)
+                                    }
+                                } else {
+                                    closestReading = (reading, distance)
+                                }
+                            }
+                            
+                            // Only select readings within 20-30 points of the cursor
+                            if let closest = closestReading, closest.distance < 30 {
+                                selectedReading = closest.reading
+                                isHovering = true
+                            } else {
+                                selectedReading = nil
+                                isHovering = false
+                            }
+                            
+                            // Find the insulin shot closest to the hover position
+                            if showInsulinShots && !insulinShotsInRange.isEmpty {
+                                var closestShot: (shot: InsulinShot, distance: CGFloat)? = nil
+                                
+                                for shot in insulinShotsInRange {
+                                    guard let xPosition = proxy.position(forX: shot.timestamp) else { continue }
+                                    let distance = abs(xPosition - x)
+                                    
+                                    // Consider shots within 20 points of the cursor
+                                    if distance < 20 {
+                                        if let current = closestShot {
+                                            if distance < current.distance {
+                                                closestShot = (shot, distance)
+                                            }
+                                        } else {
+                                            closestShot = (shot, distance)
+                                        }
+                                    }
+                                }
+                                
+                                hoveredInsulinShot = closestShot?.shot
+                            }
+                        }
+                        .onEnded { _ in
+                            isHovering = false
+                            // Clear the selected reading after a delay to avoid UI flicker
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                selectedReading = nil
+                                hoveredInsulinShot = nil
+                            }
                         }
                 )
-        }
-    }
-    
-    // Fixed drag gesture handling to properly map mouse position to data points
-    private func handleDragGesture(value: DragGesture.Value, geometry: GeometryProxy, proxy: ChartProxy) {
-        let x = value.location.x
-        guard x >= 0, x <= geometry.size.width, !readings.isEmpty else { return }
-        
-        // Use ChartProxy to directly map from the screen position to the chart's plotted date
-        if let timestamp = proxy.value(atX: x, as: Date.self) {
-            // Now find the closest reading to this timestamp
-            var closestReading: GlucoseReading? = nil
-            var minTimeDifference = Double.infinity
-            
-            for reading in readings {
-                let timeDifference = abs(reading.timestamp.timeIntervalSince(timestamp))
-                if timeDifference < minTimeDifference {
-                    minTimeDifference = timeDifference
-                    closestReading = reading
-                }
-            }
-            
-            // Update selected reading
-            selectedReading = closestReading
         }
     }
     
@@ -672,6 +793,11 @@ struct EnhancedGlucoseChartView: View {
     
     private var calendar: Calendar {
         return Calendar.current
+    }
+    
+    // Color for insulin shot indicators
+    private func insulinShotColor(opacity: Double = 0.5) -> Color {
+        return colorScheme == .dark ? Color.purple.opacity(opacity) : Color.purple.opacity(opacity)
     }
 }
 

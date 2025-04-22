@@ -1347,6 +1347,7 @@ class AppState: ObservableObject {
     @Published var isAuthenticated = false
     @Published var currentGlucoseReading: GlucoseReading?
     @Published var glucoseHistory: [GlucoseReading] = []
+    @Published var insulinHistory: [InsulinShot] = []
     @Published var isLoading = false
     @Published var error: Error?
     @Published var selectedTab = 0
@@ -1386,6 +1387,9 @@ class AppState: ObservableObject {
         
         // Load patient profile
         loadPatientProfile()
+        
+        // Load insulin shots
+        loadSavedInsulinShots()
         
         Task {
             do {
@@ -1702,7 +1706,7 @@ class AppState: ObservableObject {
     // Save patient profile to CoreData
     func savePatientProfile(_ profile: PatientProfile) {
         coreDataManager.savePatientProfile(
-            id: profile.id ?? UUID().uuidString,
+            id: profile.id,
             name: profile.name,
             dateOfBirth: profile.dateOfBirth,
             weight: profile.weight,
@@ -1724,7 +1728,7 @@ class AppState: ObservableObject {
         insulinDose: String? = nil,
         otherMedications: String? = nil
     ) {
-        if let currentProfile = self.patientProfile {
+        if var currentProfile = self.patientProfile {
             // Update fields if provided
             if let name = name {
                 currentProfile.name = name
@@ -1785,7 +1789,7 @@ class AppState: ObservableObject {
         if let profile = patientProfile {
             // Create a dictionary from PatientProfile properties directly
             var profileDict: [String: Any] = [
-                "id": profile.id ?? UUID().uuidString
+                "id": profile.id
             ]
             
             if let name = profile.name {
@@ -1798,8 +1802,8 @@ class AppState: ObservableObject {
                 profileDict["dateOfBirth"] = dateFormatter.string(from: dateOfBirth)
             }
             
-            if profile.weight > 0 {
-                profileDict["weight"] = profile.weight
+            if let profileWeight = profile.weight, profileWeight > 0 {
+                profileDict["weight"] = profileWeight
             }
             
             if let weightUnit = profile.weightUnit {
@@ -1838,5 +1842,79 @@ class AppState: ObservableObject {
         exportData["glucoseReadings"] = readingsData
         
         return exportData
+    }
+    
+    // MARK: - Insulin Shot Methods
+    
+    // Load saved insulin shots from CoreData
+    private func loadSavedInsulinShots() {
+        print("🔃 Loading saved insulin shots from CoreData...")
+        Task { [weak self] in
+            guard let self = self else { return }
+            
+            let savedShots = self.coreDataManager.fetchAllInsulinShots()
+            await MainActor.run {
+                self.insulinHistory = savedShots
+                print("💉 Loaded \(savedShots.count) insulin shots from CoreData")
+            }
+        }
+    }
+    
+    // Add a new insulin shot
+    func logInsulinShot(timestamp: Date, dosage: Double?, notes: String?) async -> Bool {
+        // Create a new InsulinShot
+        let newShot = InsulinShot(timestamp: timestamp, dosage: dosage, notes: notes)
+        
+        // Save to CoreData
+        let success = coreDataManager.saveInsulinShot(
+            id: newShot.id,
+            timestamp: newShot.timestamp,
+            dosage: newShot.dosage,
+            notes: newShot.notes
+        )
+        
+        if success {
+            // If saved successfully, reload all shots
+            // (This is simpler than trying to insert at the correct sorted position)
+            await MainActor.run {
+                // Add to the beginning of the array if sorted by most recent first
+                // or simply reload all shots from CoreData
+                loadSavedInsulinShots()
+            }
+        }
+        
+        return success
+    }
+    
+    // Delete an insulin shot
+    func deleteInsulinShot(id: UUID) async -> Bool {
+        let success = coreDataManager.deleteInsulinShot(id: id)
+        
+        if success {
+            await MainActor.run {
+                // Remove from the in-memory array
+                insulinHistory.removeAll { $0.id == id }
+            }
+        }
+        
+        return success
+    }
+    
+    // Get insulin shots for a specific day
+    func getInsulinShots(forDate date: Date) -> [InsulinShot] {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        return insulinHistory.filter {
+            $0.timestamp >= startOfDay && $0.timestamp < endOfDay
+        }.sorted { $0.timestamp < $1.timestamp }
+    }
+    
+    // Get insulin shots for a date range
+    func getInsulinShots(fromDate: Date, toDate: Date) -> [InsulinShot] {
+        return insulinHistory.filter {
+            $0.timestamp >= fromDate && $0.timestamp <= toDate
+        }.sorted { $0.timestamp < $1.timestamp }
     }
 } 
