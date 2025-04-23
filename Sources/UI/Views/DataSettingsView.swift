@@ -2,6 +2,63 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
 
+// Add LogStore to manage logs efficiently
+class LogStore: ObservableObject {
+    @Published private(set) var logs: [LogEntry] = []
+    private let maxEntries: Int
+    private var logFileHandle: FileHandle?
+    
+    struct LogEntry: Identifiable {
+        let id = UUID()
+        let timestamp: Date
+        let message: String
+        let type: LogType
+        
+        var formattedTimestamp: String {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss.SSS"
+            return formatter.string(from: timestamp)
+        }
+    }
+    
+    enum LogType: String, CaseIterable {
+        case info = "INFO"
+        case warning = "WARNING"
+        case error = "ERROR"
+        
+        var color: Color {
+            switch self {
+            case .info: return .primary
+            case .warning: return .orange
+            case .error: return .red
+            }
+        }
+    }
+    
+    init(maxEntries: Int = 1000) {
+        self.maxEntries = maxEntries
+    }
+    
+    func addLog(_ message: String, type: LogType = .info) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.logs.append(LogEntry(timestamp: Date(), message: message, type: type))
+            
+            // Keep logs array within size limit to avoid memory issues
+            if self.logs.count > self.maxEntries {
+                self.logs.removeFirst(self.logs.count - self.maxEntries)
+            }
+        }
+    }
+    
+    func clearLogs() {
+        DispatchQueue.main.async { [weak self] in
+            self?.logs.removeAll(keepingCapacity: true)
+        }
+    }
+}
+
 struct DataSettingsView: View {
     @EnvironmentObject private var appState: AppState
     
@@ -31,6 +88,11 @@ struct DataSettingsView: View {
     @State private var showCleanupConfirmation = false
     @State private var showCleanupResultAlert = false
     @State private var cleanupResultMessage = ""
+    
+    // Log viewer state
+    @StateObject private var logStore = LogStore()
+    @State private var showLogViewer = false
+    @State private var logFilter: LogStore.LogType? = nil
     
     // Export format options
     enum ExportFormat: String, CaseIterable, Identifiable {
@@ -122,9 +184,27 @@ struct DataSettingsView: View {
         }
         .onAppear {
             setupKeyMonitor()
+            
+            // Register our log store with the AppState
+            appState.registerLogStore(logStore)
+            
+            // Add initial log entry
+            logStore.addLog("Data Settings view opened", type: .info)
+            
+            // Add version info to logs for diagnostics
+            if let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+               let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
+                logStore.addLog("App version: \(appVersion) (\(buildNumber))", type: .info)
+            }
         }
         .onDisappear {
             removeKeyMonitor()
+            
+            // Add log entry
+            logStore.addLog("Data Settings view closed", type: .info)
+            
+            // Unregister our log store
+            appState.unregisterLogStore()
         }
         .alert("Confirm Data Deletion", isPresented: $showingDeletionConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -243,10 +323,16 @@ struct DataSettingsView: View {
                                 isDiagnosingDuplicates = true
                                 appState.diagnoseDuplicateReadings()
                                 
+                                // Add log entry
+                                logStore.addLog("Running database duplicate check", type: .info)
+                                
                                 // Set a timer to show the "completed" message
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                                     isDiagnosingDuplicates = false
                                     showDiagnosticResults = true
+                                    
+                                    // Add log entry for completion
+                                    logStore.addLog("Database duplicate check completed", type: .info)
                                     
                                     // Auto-hide results after 5 seconds
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
@@ -288,6 +374,7 @@ struct DataSettingsView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Button(action: {
                                 showCleanupConfirmation = true
+                                logStore.addLog("Database cleanup confirmation requested", type: .warning)
                             }) {
                                 Text("Clean Up Duplicate Readings")
                                     .frame(minWidth: 220)
@@ -326,9 +413,47 @@ struct DataSettingsView: View {
                         
                         Divider()
                         
+                        // System Logs Section
+                        VStack(alignment: .leading, spacing: 10) {
+                            DisclosureGroup(
+                                isExpanded: $showLogViewer,
+                                content: {
+                                    logViewerSection
+                                },
+                                label: {
+                                    HStack {
+                                        Image(systemName: "terminal")
+                                            .foregroundColor(.accentColor)
+                                        Text("System Logs")
+                                            .font(.headline)
+                                        
+                                        Spacer()
+                                        
+                                        Text("\(logStore.logs.count) entries")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        withAnimation {
+                                            showLogViewer.toggle()
+                                        }
+                                    }
+                                }
+                            )
+                            .padding(6)
+                            .background(Color.accentColor.opacity(0.05))
+                            .cornerRadius(8)
+                        }
+                        
+                        Divider()
+                        
                         // Clear all data (destructive)
                         VStack(alignment: .leading, spacing: 10) {
-                            Button(action: { showingDeletionConfirmation = true }) {
+                            Button(action: { 
+                                showingDeletionConfirmation = true
+                                logStore.addLog("All data deletion confirmation requested", type: .error)
+                            }) {
                                 HStack {
                                     Image(systemName: "trash")
                                         .foregroundColor(.red)
@@ -360,6 +485,88 @@ struct DataSettingsView: View {
             }
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+    
+    // Log viewer implementation
+    private var logViewerSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Controls
+            HStack {
+                Picker("Filter", selection: $logFilter) {
+                    Text("All").tag(nil as LogStore.LogType?)
+                    ForEach(LogStore.LogType.allCases, id: \.self) { type in
+                        Text(type.rawValue).tag(type as LogStore.LogType?)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 280)
+                
+                Spacer()
+                
+                Button(action: {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    
+                    let logString = filteredLogs.map { "[\($0.formattedTimestamp)] [\($0.type.rawValue)] \($0.message)" }.joined(separator: "\n")
+                    pasteboard.setString(logString, forType: .string)
+                    
+                    logStore.addLog("Logs copied to clipboard", type: .info)
+                }) {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                
+                Button(action: {
+                    logStore.clearLogs()
+                    logStore.addLog("Logs cleared", type: .info)
+                }) {
+                    Label("Clear", systemImage: "trash")
+                }
+            }
+            
+            // Log display area
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(filteredLogs) { entry in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(entry.formattedTimestamp)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .frame(width: 90, alignment: .leading)
+                            
+                            Text(entry.type.rawValue)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(entry.type.color)
+                                .frame(width: 70, alignment: .leading)
+                            
+                            Text(entry.message)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(entry.type.color)
+                                .lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.vertical, 1)
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 220)
+            .background(Color(.textBackgroundColor).opacity(0.3))
+            .cornerRadius(6)
+            
+            Text("System logs are only stored in memory and will be cleared when the app is closed.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.top, 10)
+    }
+    
+    // Computed property for filtered logs
+    private var filteredLogs: [LogStore.LogEntry] {
+        guard let filter = logFilter else {
+            return logStore.logs.reversed()
+        }
+        return logStore.logs.filter { $0.type == filter }.reversed()
     }
     
     // Export Options Sheet
@@ -626,8 +833,10 @@ struct DataSettingsView: View {
             showAdvancedOptions.toggle()
         }
         
-        // Log to console for debugging
-        print("🔧 Advanced data management options \(showAdvancedOptions ? "shown" : "hidden") - Use Shift+H or Option+D to toggle")
+        // Log to console for debugging and to our log store
+        let message = "🔧 Advanced data management options \(showAdvancedOptions ? "shown" : "hidden") - Use Shift+H or Option+D to toggle"
+        print(message)
+        logStore.addLog(message, type: .info)
     }
     
     // Function to show export options sheet

@@ -825,4 +825,36 @@ class ProgrammaticCoreDataManager {
             return false
         }
     }
+    
+    // Delete all glucose readings from CoreData
+    func deleteAllGlucoseReadings() -> Bool {
+        let context = persistentContainer.viewContext
+        
+        // Create a fetch request for all glucose readings
+        let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "GlucoseReadingEntity")
+        
+        // Use a batch delete request for efficiency with large datasets
+        let batchDeleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
+        batchDeleteRequest.resultType = .resultTypeObjectIDs
+        
+        do {
+            print("🗑️ Attempting to delete all glucose readings...")
+            let result = try context.execute(batchDeleteRequest) as? NSBatchDeleteResult
+            
+            if let objectIDs = result?.result as? [NSManagedObjectID] {
+                // Merge the changes to our context's managed object context
+                let changes = [NSDeletedObjectsKey: objectIDs]
+                NSManagedObjectContext.mergeChanges(fromRemoteContextSave: changes, into: [context])
+                
+                print("✅ Successfully deleted \(objectIDs.count) glucose readings")
+                return true
+            } else {
+                print("⚠️ No readings were deleted")
+                return false
+            }
+        } catch {
+            print("❌ Failed to delete all glucose readings: \(error)")
+            return false
+        }
+    }
 } 

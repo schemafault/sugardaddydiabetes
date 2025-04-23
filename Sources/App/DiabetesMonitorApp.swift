@@ -701,23 +701,7 @@ struct DiabetesMonitorApp: App {
     // Store window controller reference
     @State private var loginWindowController: LoginWindowController? = nil
     
-    // CRITICAL FIX: Add coreDataManager property
-    private let coreDataManager: ProgrammaticCoreDataManager
-    
-    // CRITICAL FIX: Add init to ensure proper activation
-    init() {
-        // Initialize coreDataManager first
-        self.coreDataManager = ProgrammaticCoreDataManager.shared
-        
-        // Ensure proper activation policy
-        NSApplication.shared.setActivationPolicy(.regular)
-        
-        // CRITICAL FIX: Set activation policy immediately in init
-        NSApp.setActivationPolicy(.regular)
-        
-        // Instead of Task, we'll use AppDelegate for background work
-        print("DiabetesMonitorApp initialized")
-    }
+    // We will use the AppState object directly for coreDataManager access
     
     var body: some Scene {
         WindowGroup("Diabetes Monitor", id: "main") {
@@ -1165,11 +1149,20 @@ struct AppKitTextField: NSViewRepresentable {
 
 @MainActor
 class AppState: ObservableObject {
+    // Menu bar visibility control
+    @Published var showMenuBar: Bool = true
+    
+    // CoreData manager
+    let coreDataManager: ProgrammaticCoreDataManager
+    
+    // LibreView service for API access
+    let libreViewService = LibreViewService()
+    
     // Method to clear all data
     func clearAllData() async {
         glucoseHistory = []
         currentGlucoseReading = nil
-        print("Cleared data from memory - all API data is still in CoreData database")
+        logWarning("Cleared data from memory - all API data is still in CoreData database")
     }
     
     // Add properties to track refresh results
@@ -1227,7 +1220,7 @@ class AppState: ObservableObject {
     
     // Method to reload data with current granularity setting
     func reloadWithCurrentGranularity() async {
-        print("🔄 Reloading data with current granularity setting...")
+        logInfo("🔄 Reloading data with current granularity setting...")
         
         // Fetch all readings from CoreData
         let allReadings = coreDataManager.fetchAllGlucoseReadings()
@@ -1243,7 +1236,7 @@ class AppState: ObservableObject {
             }
         }
         
-        print("✅ Reloaded \(granularityReadings.count) readings with granularity")
+        logInfo("✅ Reloaded \(granularityReadings.count) readings with granularity")
     }
     
     // Apply data granularity to readings
@@ -1255,7 +1248,7 @@ class AppState: ObservableObject {
             return readings
         }
         
-        print("🧪 Applying granularity of \(granularity) minute(s) to \(readings.count) readings")
+        logInfo("🧪 Applying granularity of \(granularity) minute(s) to \(readings.count) readings")
         
         let calendar = Calendar.current
         var buckets: [String: [GlucoseReading]] = [:]
@@ -1325,7 +1318,7 @@ class AppState: ObservableObject {
         // Sort by timestamp (newest first - consistent with the rest of app)
         let sortedReadings = averagedReadings.sorted { $0.timestamp > $1.timestamp }
         
-        print("🧪 Reduced to \(sortedReadings.count) averaged readings with granularity of \(granularity) minute(s)")
+        logInfo("🧪 Reduced to \(sortedReadings.count) averaged readings with granularity of \(granularity) minute(s)")
         
         return sortedReadings
     }
@@ -1360,14 +1353,44 @@ class AppState: ObservableObject {
         return UserDefaults.standard.string(forKey: "unit") ?? "mmol/L"
     }
     
-    private let libreViewService = LibreViewService()
-    private let coreDataManager: ProgrammaticCoreDataManager
+    // MARK: - Logging Support
     
-    // Always use real API data, never test data
-    private let useTestData = false
+    // Central log store that can be registered from different views
+    private weak var logStore: LogStore? = nil
     
-    // Property to track if menu bar should be shown
-    @Published var showMenuBar: Bool = true
+    // Register a log store from a view
+    func registerLogStore(_ store: LogStore) {
+        self.logStore = store
+        log("AppState registered a log store")
+    }
+    
+    // Unregister the log store when view disappears
+    func unregisterLogStore() {
+        log("AppState unregistering log store")
+        self.logStore = nil
+    }
+    
+    // Log a message with an optional type
+    func log(_ message: String, type: LogStore.LogType = .info) {
+        // Print to console first (this always happens)
+        print(message)
+        
+        // Then to the log store if available (no performance hit if not registered)
+        logStore?.addLog(message, type: type)
+    }
+    
+    // Short aliases for convenience
+    func logInfo(_ message: String) {
+        log(message, type: .info)
+    }
+    
+    func logWarning(_ message: String) {
+        log(message, type: .warning)
+    }
+    
+    func logError(_ message: String) {
+        log(message, type: .error)
+    }
     
     // Add state variables for database cleanup
     @Published var isDatabaseCleanupRunning = false
@@ -1639,43 +1662,330 @@ class AppState: ObservableObject {
             lastCleanupResult = nil
         }
         
-        // Run backup first
-        let backupPath = DiabetesDataDiagnostic.shared.backupDatabase()
-        
-        if backupPath == nil {
-            print("⚠️ Warning: Proceeding with cleanup without successful backup")
+        // Create an observer for cleanup messages
+        let notificationCenter = NotificationCenter.default
+        let observer = notificationCenter.addObserver(
+            forName: NSNotification.Name("CleanupLog"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            if let message = notification.userInfo?["message"] as? String,
+               let type = notification.userInfo?["type"] as? String {
+                switch type {
+                case "warning":
+                    self?.logWarning("🧹 CLEANUP: \(message)")
+                case "error":
+                    self?.logError("❌ CLEANUP: \(message)")
+                default:
+                    self?.logInfo("🧹 CLEANUP: \(message)")
+                }
+            }
         }
         
-        // Perform cleanup
-        let result = DiabetesDataDiagnostic.shared.cleanupDuplicateReadings(coreDataManager: coreDataManager)
+        // Start with a warning log
+        logWarning("Starting database cleanup - removing duplicate readings")
         
-        // Update state with results
-        await MainActor.run {
-            isDatabaseCleanupRunning = false
+        // Run cleanup in a background task
+        let cleanupTask = Task.detached { [self] in
+            // Run backup first
+            let backupPath = DiabetesDataDiagnostic.shared.backupDatabase()
             
-            if result.success {
-                print("✅ Database cleanup completed: removed \(result.duplicatesRemoved) duplicates, kept \(result.uniqueCount) unique readings")
-                lastCleanupResult = .success(
-                    uniqueCount: result.uniqueCount,
-                    duplicatesRemoved: result.duplicatesRemoved,
-                    backupPath: backupPath
+            // Log backup status
+            if backupPath == nil {
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("CleanupLog"),
+                    object: nil,
+                    userInfo: [
+                        "message": "Proceeding with cleanup without successful backup",
+                        "type": "warning"
+                    ]
                 )
-                
-                // Reload data to reflect changes
-                Task {
-                    loadSavedReadings()
-                }
             } else {
-                lastCleanupResult = .failure(error: "Database cleanup failed")
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("CleanupLog"),
+                    object: nil,
+                    userInfo: [
+                        "message": "Database backup created at: \(backupPath!)",
+                        "type": "info"
+                    ]
+                )
             }
+            
+            // Perform cleanup with extensive logging
+            let result = await cleanupDatabaseWithLogs(backupPath: backupPath)
+            
+            // Update state with results on main thread
+            await MainActor.run { [self] in
+                isDatabaseCleanupRunning = false
+                
+                if result.success {
+                    let message = "✅ Database cleanup completed: removed \(result.duplicatesRemoved) duplicates, kept \(result.uniqueCount) unique readings"
+                    logInfo(message)
+                    
+                    lastCleanupResult = .success(
+                        uniqueCount: result.uniqueCount,
+                        duplicatesRemoved: result.duplicatesRemoved,
+                        backupPath: backupPath
+                    )
+                    
+                    // Reload data to reflect changes
+                    Task {
+                        logInfo("Reloading data after cleanup")
+                        loadSavedReadings()
+                    }
+                } else {
+                    logError("❌ Database cleanup failed")
+                    lastCleanupResult = .failure(error: "Database cleanup failed")
+                }
+                
+                // Remove observer once complete
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+    }
+    
+    // Helper function to run cleanup with detailed logging
+    private func cleanupDatabaseWithLogs(backupPath: String?) async -> (success: Bool, uniqueCount: Int, duplicatesRemoved: Int) {
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CleanupLog"),
+            object: nil,
+            userInfo: [
+                "message": "Starting detailed database cleanup process",
+                "type": "info"
+            ]
+        )
+        
+        // Get all readings
+        let allReadings = coreDataManager.fetchAllGlucoseReadings()
+        
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CleanupLog"),
+            object: nil,
+            userInfo: [
+                "message": "Fetched \(allReadings.count) total readings",
+                "type": "info"
+            ]
+        )
+        
+        // Group readings by timestamp string (accurate to the second)
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        
+        var readingsByTimestamp: [String: [GlucoseReading]] = [:]
+        
+        for reading in allReadings {
+            let timestampKey = dateFormatter.string(from: reading.timestamp)
+            if readingsByTimestamp[timestampKey] == nil {
+                readingsByTimestamp[timestampKey] = []
+            }
+            readingsByTimestamp[timestampKey]?.append(reading)
+        }
+        
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CleanupLog"),
+            object: nil,
+            userInfo: [
+                "message": "Found \(readingsByTimestamp.count) unique timestamps out of \(allReadings.count) total readings",
+                "type": "info"
+            ]
+        )
+        
+        // Count how many will be deleted
+        var duplicatesToDelete = 0
+        for (_, readings) in readingsByTimestamp {
+            if readings.count > 1 {
+                duplicatesToDelete += readings.count - 1
+            }
+        }
+        
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CleanupLog"),
+            object: nil,
+            userInfo: [
+                "message": "Will preserve \(readingsByTimestamp.count) readings and delete \(duplicatesToDelete) duplicates",
+                "type": "info"
+            ]
+        )
+        
+        // Create a list of readings to keep (one per timestamp)
+        var readingsToKeep: [GlucoseReading] = []
+        for (_, readings) in readingsByTimestamp {
+            if let firstReading = readings.first {
+                readingsToKeep.append(firstReading)
+            }
+        }
+        
+        // Log what we're keeping for debug
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CleanupLog"),
+            object: nil,
+            userInfo: [
+                "message": "Preparing to save \(readingsToKeep.count) unique readings",
+                "type": "info"
+            ]
+        )
+        
+        // Now save only the readings we want to keep
+        do {
+            // First delete all readings (we have them in memory)
+            let deleteResult = coreDataManager.deleteAllGlucoseReadings()
+            
+            if !deleteResult {
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("CleanupLog"),
+                    object: nil,
+                    userInfo: [
+                        "message": "Failed to clear existing readings",
+                        "type": "error"
+                    ]
+                )
+                return (false, 0, 0)
+            }
+            
+            NotificationCenter.default.post(
+                name: NSNotification.Name("CleanupLog"),
+                object: nil,
+                userInfo: [
+                    "message": "Successfully cleared existing readings",
+                    "type": "info"
+                ]
+            )
+            
+            // Then save only the unique readings
+            coreDataManager.saveGlucoseReadings(readingsToKeep)
+            
+            NotificationCenter.default.post(
+                name: NSNotification.Name("CleanupLog"),
+                object: nil,
+                userInfo: [
+                    "message": "Successfully saved \(readingsToKeep.count) unique readings",
+                    "type": "info"
+                ]
+            )
+            
+            return (true, readingsToKeep.count, duplicatesToDelete)
+        } catch {
+            NotificationCenter.default.post(
+                name: NSNotification.Name("CleanupLog"),
+                object: nil,
+                userInfo: [
+                    "message": "Error cleaning up database: \(error.localizedDescription)",
+                    "type": "error"
+                ]
+            )
+            return (false, 0, 0)
         }
     }
     
     // Diagnostic method to check for duplicate readings without modifying data
     func diagnoseDuplicateReadings() {
         Task {
-            print("📊 Running database diagnostics...")
-            DiabetesDataDiagnostic.shared.analyzeDuplicateReadings(coreDataManager: coreDataManager)
+            // Create log capture for diagnostics
+            logInfo("📊 Running database diagnostics...")
+            
+            // Create an observer for diagnostic messages
+            let notificationCenter = NotificationCenter.default
+            let observer = notificationCenter.addObserver(
+                forName: NSNotification.Name("DiagnosticLog"),
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                if let message = notification.userInfo?["message"] as? String {
+                    self?.logInfo("📊 DIAGNOSTIC: \(message)")
+                }
+            }
+            
+            // Modify diagnostics to post notifications instead of just printing
+            let diagnostic = DiabetesDataDiagnostic.shared
+            
+            // Run a customized diagnostic that captures output
+            Task.detached {
+                // Get all readings
+                let allReadings = self.coreDataManager.fetchAllGlucoseReadings()
+                
+                // Post a notification with the count
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("DiagnosticLog"),
+                    object: nil,
+                    userInfo: ["message": "Found \(allReadings.count) total readings in database"]
+                )
+                
+                // Group readings by timestamp strings (accurate to the second)
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                
+                var readingsByTimestamp: [String: [GlucoseReading]] = [:]
+                
+                for reading in allReadings {
+                    let timestampKey = dateFormatter.string(from: reading.timestamp)
+                    if readingsByTimestamp[timestampKey] == nil {
+                        readingsByTimestamp[timestampKey] = []
+                    }
+                    readingsByTimestamp[timestampKey]?.append(reading)
+                }
+                
+                // Find duplicates
+                var totalDuplicates = 0
+                var duplicateGroups: [String: [GlucoseReading]] = [:]
+                
+                for (timestamp, readings) in readingsByTimestamp where readings.count > 1 {
+                    duplicateGroups[timestamp] = readings
+                    totalDuplicates += readings.count - 1 // Count duplicates (original doesn't count)
+                }
+                
+                // Post results
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("DiagnosticLog"),
+                    object: nil,
+                    userInfo: ["message": "Found \(duplicateGroups.count) timestamp groups with duplicates"]
+                )
+                
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("DiagnosticLog"),
+                    object: nil,
+                    userInfo: ["message": "Total duplicate readings: \(totalDuplicates)"]
+                )
+                
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("DiagnosticLog"),
+                    object: nil,
+                    userInfo: ["message": "Unique timestamps: \(readingsByTimestamp.count)"]
+                )
+                
+                // Show examples of duplicates
+                if !duplicateGroups.isEmpty {
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("DiagnosticLog"),
+                        object: nil,
+                        userInfo: ["message": "Examples of duplicate readings:"]
+                    )
+                    
+                    let exampleCount = min(5, duplicateGroups.count)
+                    let exampleTimestamps = Array(duplicateGroups.keys.sorted().prefix(exampleCount))
+                    
+                    for timestamp in exampleTimestamps {
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("DiagnosticLog"),
+                            object: nil,
+                            userInfo: ["message": "Timestamp: \(timestamp)"]
+                        )
+                        
+                        for (index, reading) in duplicateGroups[timestamp]!.enumerated() {
+                            NotificationCenter.default.post(
+                                name: NSNotification.Name("DiagnosticLog"),
+                                object: nil,
+                                userInfo: ["message": "  Reading \(index+1): ID \(reading.id), Value \(reading.value)"]
+                            )
+                        }
+                    }
+                }
+                
+                // Final notification that we're done
+                await MainActor.run {
+                    self.logInfo("Diagnostics complete - check log viewer for results")
+                    NotificationCenter.default.removeObserver(observer)
+                }
+            }
         }
     }
     
@@ -1689,13 +1999,13 @@ class AppState: ObservableObject {
             let newId = UUID().uuidString
             coreDataManager.savePatientProfile(
                 id: newId,
-                name: nil,
-                dateOfBirth: nil, 
-                weight: nil,
-                weightUnit: nil,
-                insulinType: nil,
-                insulinDose: nil,
-                otherMedications: nil
+                name: nil as String?,
+                dateOfBirth: nil as Date?, 
+                weight: nil as Double?,
+                weightUnit: nil as String?,
+                insulinType: nil as String?,
+                insulinDose: nil as String?,
+                otherMedications: nil as String?
             )
             // Fetch the newly created profile
             self.patientProfile = coreDataManager.fetchPatientProfile()

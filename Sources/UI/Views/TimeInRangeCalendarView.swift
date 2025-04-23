@@ -207,12 +207,19 @@ struct TimeInRangeCalendarView: View {
         }
     }
     
+    // Check if a day has insulin shots
+    private func insulinShotsForDate(_ date: Date) -> [InsulinShot] {
+        return appState.getInsulinShots(forDate: date)
+    }
+    
     // Individual day cell in the calendar
     private func calendarDayCell(date: Date) -> some View {
         let isSelected = selectedDate.map { calendar.isDate($0, inSameDayAs: date) } ?? false
         let isToday = calendar.isDateInToday(date)
         let dayNumber = calendar.component(.day, from: date)
         let hasData = timeInRangeForDate(date) != nil
+        let insulinShots = insulinShotsForDate(date)
+        let hasInsulinShots = !insulinShots.isEmpty
         
         return Button(action: {
             // On click, select the date
@@ -220,7 +227,7 @@ struct TimeInRangeCalendarView: View {
             
             // For cells with data, make it possible to double-click
             // by adding a Detail button in the day detail view
-            if hasData {
+            if hasData || hasInsulinShots {
                 // Add a small delay to allow for a potential second click
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     // If the date is still selected, show the detail view
@@ -241,7 +248,7 @@ struct TimeInRangeCalendarView: View {
                             .stroke(isSelected ? Color.blue : (isToday ? Color.secondary : Color.clear), lineWidth: isSelected ? 2 : 1)
                     )
                 
-                VStack {
+                VStack(spacing: 2) {
                     Text("\(dayNumber)")
                         .font(.system(size: 12, weight: isToday ? .bold : .regular))
                         .foregroundColor(isToday ? .primary : .secondary)
@@ -251,19 +258,45 @@ struct TimeInRangeCalendarView: View {
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                     }
+                    
+                    // Show insulin shot indicators
+                    if hasInsulinShots {
+                        HStack(spacing: insulinShots.count > 3 ? 1 : 2) {
+                            // Show individual shots if there are 3 or fewer
+                            if insulinShots.count <= 3 {
+                                ForEach(0..<insulinShots.count, id: \.self) { _ in
+                                    Image(systemName: "syringe")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.white)
+                                        .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0)
+                                }
+                            } else {
+                                // Show count for more than 3 shots
+                                Image(systemName: "syringe")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.white)
+                                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0)
+                                Text("×\(insulinShots.count)")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.white)
+                                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0)
+                            }
+                        }
+                    }
                 }
+                .padding(.vertical, 2)
             }
         }
         .buttonStyle(PlainButtonStyle())
         .contextMenu {
-            if hasData {
+            if hasData || hasInsulinShots {
                 Button("View Details") {
                     selectedDate = date
                     showingDayDetail = true
                 }
             }
         }
-        .opacity(hasData ? 1.0 : 0.8)
+        .opacity((hasData || hasInsulinShots) ? 1.0 : 0.8)
     }
     
     // Calendar legend
@@ -275,6 +308,7 @@ struct TimeInRangeCalendarView: View {
                 legendItem(color: .yellow.opacity(0.6), label: "Low")
                 legendItem(color: .red.opacity(0.6), label: "High")
                 legendItem(color: .gray.opacity(0.2), label: "No Data")
+                insulinLegendItem(label: "Insulin")
                 
                 Spacer()
             }
@@ -303,12 +337,33 @@ struct TimeInRangeCalendarView: View {
         .padding(.top, 8)
     }
     
-    // Helper to create legend items
+    // Helper to create color legend items
     private func legendItem(color: Color, label: String) -> some View {
         HStack(spacing: 4) {
             RoundedRectangle(cornerRadius: 4)
                 .fill(color)
                 .frame(width: 16, height: 16)
+            
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+    
+    // Helper to create insulin legend item with icon
+    private func insulinLegendItem(label: String) -> some View {
+        HStack(spacing: 4) {
+            // Use ZStack to create a more visible icon in the legend
+            ZStack {
+                Circle()
+                    .fill(Color.blue.opacity(0.2))
+                    .frame(width: 16, height: 16)
+                
+                Image(systemName: "syringe")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+            }
+            .frame(width: 16, height: 16)
             
             Text(label)
                 .font(.caption)
@@ -331,6 +386,10 @@ struct TimeInRangeCalendarView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
+            
+            // Get insulin shots for the selected day
+            let insulinShots = insulinShotsForDate(date)
+            let hasInsulinShots = !insulinShots.isEmpty
             
             if let timeInRange = timeInRangeForDate(date) {
                 HStack(spacing: 20) {
@@ -363,10 +422,39 @@ struct TimeInRangeCalendarView: View {
                         .font(.caption)
                     }
                 }
-            } else {
+            } else if hasInsulinShots {
+                // If no glucose data but has insulin shots
                 Text("No glucose data available for this day")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+            } else {
+                // No data at all
+                Text("No glucose data available for this day")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Show insulin information if present
+            if hasInsulinShots {
+                HStack(spacing: 8) {
+                    Image(systemName: "syringe")
+                        .foregroundColor(.blue)
+                    
+                    Text("\(insulinShots.count) insulin \(insulinShots.count == 1 ? "shot" : "shots")")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                    
+                    Spacer()
+                    
+                    // Show total units if available
+                    let totalUnits = insulinShots.compactMap({ $0.dosage }).reduce(0, +)
+                    if totalUnits > 0 {
+                        Text("Total: \(String(format: "%.1f", totalUnits)) units")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.top, 4)
             }
         }
     }
@@ -434,6 +522,7 @@ struct DayDetailView: View {
     @State private var showingDeleteConfirmation = false
     @State private var shotToDelete: UUID? = nil
     @State private var isLoggingShot = false
+    @State private var hasInitializedFromProfile = false
     
     // Get readings for the selected day - only calculated once
     private var dayReadings: [GlucoseReading] {
@@ -511,6 +600,21 @@ struct DayDetailView: View {
             let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: date) ?? date
             insulinTime = noon
         }
+        
+        // Initialize the insulin dosage from the patient profile if we haven't done it yet
+        if !hasInitializedFromProfile {
+            hasInitializedFromProfile = true
+            
+            // Prepopulate from patient profile if available and numeric
+            if let patientProfile = appState.patientProfile,
+               let profileDose = patientProfile.insulinDose,
+               !profileDose.isEmpty,
+               Double(profileDose) != nil {
+                
+                self.insulinDosage = profileDose
+                print("📝 Prepopulated insulin dose with \(profileDose) units from patient profile")
+            }
+        }
     }
     
     var body: some View {
@@ -582,6 +686,21 @@ struct DayDetailView: View {
             }
             .onAppear {
                 loadInsulinShots()
+                
+                // Try with a small delay as a backup
+                if let profile = appState.patientProfile,
+                   let profileDose = profile.insulinDose,
+                   !profileDose.isEmpty,
+                   Double(profileDose) != nil {
+                    
+                    // Try to populate the field after a short delay in case loadInsulinShots didn't
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        if self.insulinDosage.isEmpty {
+                            self.insulinDosage = profileDose
+                            print("⏱️ Populated insulin dose with \(profileDose) units after delay")
+                        }
+                    }
+                }
             }
             .alert("Delete Insulin Shot", isPresented: $showingDeleteConfirmation) {
                 Button("Cancel", role: .cancel) {}
@@ -748,8 +867,37 @@ struct DayDetailView: View {
     // New view for insulin shots section
     private var insulinShotsView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Insulin Shots")
-                .font(.headline)
+            // Header with shot count
+            HStack {
+                Image(systemName: "syringe")
+                    .foregroundColor(.blue)
+                
+                Text("Insulin Shots")
+                    .font(.headline)
+                
+                if !insulinShots.isEmpty {
+                    Spacer()
+                    
+                    // Total count badge
+                    Text("\(insulinShots.count)")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Color.blue)
+                        .clipShape(Capsule())
+                    
+                    // Show total units if available
+                    let totalUnits = insulinShots.compactMap({ $0.dosage }).reduce(0, +)
+                    if totalUnits > 0 {
+                        Text("Total: \(String(format: "%.1f", totalUnits)) units")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 4)
+                    }
+                }
+            }
             
             // Form for logging a new shot
             VStack(spacing: 16) {
@@ -759,12 +907,31 @@ struct DayDetailView: View {
                     .labelsHidden()
                     .frame(maxWidth: .infinity, alignment: .center)
                 
-                // Dosage input
+                // Dosage input with improved visual cues
                 HStack {
                     Text("Dosage")
                         .foregroundColor(.secondary)
                     
-                    TextField("Optional", text: $insulinDosage)
+                    TextField("From profile", text: $insulinDosage)
+                        .foregroundColor(insulinDosage.isEmpty ? .secondary : .primary)
+                        .overlay(
+                            Group {
+                                if !insulinDosage.isEmpty, 
+                                   let profile = appState.patientProfile,
+                                   let profileDose = profile.insulinDose,
+                                   !profileDose.isEmpty,
+                                   insulinDosage == profileDose {
+                                    // Simple indicator when value matches profile
+                                    HStack {
+                                        Spacer()
+                                        Image(systemName: "person.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.blue.opacity(0.7))
+                                            .padding(.trailing, 4)
+                                    }
+                                }
+                            }
+                        )
                     
                     Text("units")
                         .foregroundColor(.secondary)
@@ -791,10 +958,11 @@ struct DayDetailView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(.blue)  // Use blue to match insulin shot theme
                 .disabled(isLoggingShot)
             }
             .padding()
-            .background(Color.secondary.opacity(0.1))
+            .background(Color.blue.opacity(0.1))
             .cornerRadius(12)
             
             // Display shots for this day if there are any
@@ -806,8 +974,8 @@ struct DayDetailView: View {
                     
                     ForEach(insulinShots) { shot in
                         HStack {
-                            Image(systemName: "clock")
-                                .foregroundColor(.secondary)
+                            Image(systemName: "syringe")
+                                .foregroundColor(.blue)
                             
                             Text(formatTime(shot.timestamp))
                                 .foregroundColor(.primary)
@@ -817,6 +985,7 @@ struct DayDetailView: View {
                             if let dosage = shot.dosage {
                                 Text("\(String(format: "%.1f", dosage)) units")
                                     .foregroundColor(.primary)
+                                    .fontWeight(.medium)
                             } else {
                                 Text("No dosage logged")
                                     .foregroundColor(.secondary)
@@ -839,7 +1008,7 @@ struct DayDetailView: View {
                             Text(notes)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                                .padding(.leading)
+                                .padding(.leading, 28)  // Align with the icon
                                 .padding(.bottom, 4)
                         }
                         
@@ -872,9 +1041,9 @@ struct DayDetailView: View {
         let startOfDay = calendar.startOfDay(for: date)
         let timeComponents = calendar.dateComponents([.hour, .minute], from: insulinTime)
         let combinedDateTime = calendar.date(bySettingHour: timeComponents.hour ?? 0,
-                                           minute: timeComponents.minute ?? 0,
-                                           second: 0,
-                                           of: startOfDay) ?? date
+                                          minute: timeComponents.minute ?? 0,
+                                          second: 0,
+                                          of: startOfDay) ?? date
         
         isLoggingShot = true
         

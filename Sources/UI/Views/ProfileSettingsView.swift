@@ -229,7 +229,50 @@ struct ProfileSettingsView: View {
                 VStack(alignment: .leading, spacing: 15) {
                     inputField(title: "Insulin Type", binding: $insulinType, placeholder: "e.g., Humalog, Lantus", systemImage: "cross.case")
                     
-                    inputField(title: "Insulin Dose", binding: $insulinDose, placeholder: "e.g., 10 units morning, 8 units evening", systemImage: "syringe")
+                    // Insulin Dose field with numeric validation
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "syringe")
+                                .frame(width: 24)
+                                .foregroundColor(.secondary)
+                            Text("Insulin Dose")
+                                .font(.subheadline)
+                        }
+                        
+                        HStack {
+                            TextField("e.g., 10", text: $insulinDose)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .onChange(of: insulinDose) { oldValue, newValue in
+                                    // Filter out non-numeric characters
+                                    let filtered = newValue.filter { "0123456789.".contains($0) }
+                                    
+                                    // Ensure only one decimal point
+                                    if filtered.filter({ $0 == "." }).count > 1,
+                                       let firstDecimal = filtered.firstIndex(of: ".") {
+                                        var corrected = filtered
+                                        corrected.remove(at: firstDecimal)
+                                        if corrected.contains(".") {
+                                            insulinDose = String(corrected.prefix(through: firstDecimal))
+                                            return
+                                        }
+                                    }
+                                    
+                                    // Update with filtered value if different
+                                    if filtered != newValue {
+                                        insulinDose = filtered
+                                    }
+                                }
+                            
+                            Text("units")
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.leading, 24)
+                        
+                        Text("Enter a numeric value for your usual insulin dose.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 24)
+                    }
                     
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
