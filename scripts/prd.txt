@@ -1,0 +1,52 @@
+# MacSugarDaddy Diabetes Dashboard UI Improvements PRD
+
+## Project Overview
+This project aims to improve the dashboard UI of the MacSugarDaddy Diabetes application. The current dashboard has several issues that need to be addressed to enhance user experience, functionality, and visual appeal.
+
+## Background
+The dashboard is a critical component of the diabetes monitoring application, displaying glucose readings, trends, and historical data. Recent changes have caused several issues that negatively impact the user experience and professional appearance of the application.
+
+## Requirements
+
+### 1. Remove Unnecessary Animations
+- Remove all transition animations from the dashboard
+- Prioritize performance and stability over animations
+- Ensure a clean, immediate response when switching views or data periods
+
+### 2. Restore Injection Highlight Functionality
+- Restore the highlight section on the graph that indicates when insulin injections were administered
+- Ensure these highlights are visually distinct but not distracting
+- Maintain compatibility with both light and dark mode
+- Support accessibility features for users who rely on them
+
+### 3. Improve Date Control Placement
+- Move the date selector controls (back/forward buttons and date picker) to below the graph
+- Ensure consistent UI layout when switching between time filters (Today, 3 Days, 7 Days, etc.)
+- Prevent UI "jumping" when controls appear or disappear
+- Maintain intuitive date navigation while improving overall layout
+
+### 4. Enhance Current Reading Block for Historical Views
+- Modify the Current Reading block to show the average glucose reading when viewing historical data
+- Include clear indication that the displayed value is a historical average
+- Update title from "Current Reading" to "Average Reading" when appropriate
+- Maintain consistent styling and accessibility regardless of view mode
+
+### 5. Restore Professional Visual Design
+- Restore the professional graphical look and feel shown in the reference image
+- Improve the visual hierarchy of information
+- Ensure consistent use of colors, shadows, and spacing
+- Maintain the dark theme aesthetic with proper contrast and readability
+- Restore the stats cards with proper styling and layout
+
+## Technical Considerations
+- All changes should be implemented in the ContentView.swift file, specifically within the DashboardView struct
+- Ensure all UI elements properly support both iOS and macOS platforms
+- Maintain accessibility support throughout the interface
+- Preserve SwiftUI best practices and performance considerations
+
+## Success Criteria
+- Dashboard displays without animations when switching views
+- Injection highlights are visible on the glucose graph
+- Date controls are positioned below the graph without causing layout jumps
+- Current Reading block properly shows historical averages when appropriate
+- Overall visual design matches the professional appearance of the reference image 
