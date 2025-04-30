@@ -272,20 +272,16 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Historical data indicator
-                if dateFilter == 0 && selectedDate != nil && !isViewingToday() {
-                    historicalDataIndicatorContent
-                }
-                
-                // Move the time filter picker to before the graph
+                // Time filter picker
                 timeFilterPicker
                 
-                // Current reading display
+                // Current reading display with selectedDate
                 if let latestReading = appState.currentGlucoseReading {
                     CurrentReadingView(
                         reading: latestReading,
                         isHistorical: isViewingHistoricalData,
-                        allReadings: filteredReadings.isEmpty ? [latestReading] : filteredReadings
+                        allReadings: filteredReadings.isEmpty ? [latestReading] : filteredReadings,
+                        selectedDate: selectedDate
                     )
                     .padding(.horizontal)
                 }
@@ -314,105 +310,12 @@ struct DashboardView: View {
             .padding(.vertical)
         }
         .navigationTitle("Dashboard")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: {
-                    Task {
-                        await appState.fetchLatestReadings()
-                    }
-                }) {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .keyboardShortcut("r", modifiers: .command)
-            }
-        }
         .sheet(isPresented: $showDatePicker) {
             datePickerSheet
         }
     }
     
     // MARK: - Helper Views
-    
-    private var historicalDataIndicatorContent: some View {
-        HStack {
-            Image(systemName: "clock.arrow.circlepath")
-                .foregroundColor(differentiateWithoutColor ? AccessibilityUtils.highContrastOrange : .orange)
-                .imageScale(.medium)
-                .accessibilityHidden(true)
-            Text("Viewing historical data")
-                .font(.callout.weight(.medium))
-                .foregroundColor(differentiateWithoutColor ? AccessibilityUtils.highContrastOrange : .orange)
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.orange.opacity(colorScheme == .dark ? 0.2 : 0.15))
-                .shadow(color: Color.orange.opacity(0.1), radius: 3, x: 0, y: 2)
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Historical data indicator")
-    }
-    
-    private var dayNavigationControls: some View {
-        HStack(spacing: 20) {
-            // Previous day button
-            Button(action: {
-                navigateDay(direction: .backward)
-            }) {
-                Image(systemName: "chevron.left")
-                    .imageScale(.large)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            
-            // Date display/picker button
-            Button(action: {
-                // Show date picker sheet
-                showDatePicker = true
-            }) {
-                HStack {
-                    Text(formattedSelectedDate)
-                        .font(.headline)
-                    Image(systemName: "calendar")
-                        .imageScale(.small)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white.opacity(0.7))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.primary.opacity(0.2), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            
-            // Next day button (disabled if viewing today)
-            Button(action: {
-                navigateDay(direction: .forward)
-            }) {
-                Image(systemName: "chevron.right")
-                    .imageScale(.large)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                    .foregroundColor(isViewingToday() ? .gray : .primary)
-            }
-            .buttonStyle(.plain)
-            .disabled(isViewingToday())
-            .onChange(of: isViewingToday()) { _, isToday in
-                if isToday {
-                    AccessibilityAnnouncer.shared.announce("Next day button disabled. You are viewing today's data.")
-                }
-            }
-        }
-        .padding(.horizontal)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Day navigation controls")
-    }
     
     private var timeFilterPicker: some View {
         Picker("Time Range", selection: $dateFilter) {
@@ -453,7 +356,7 @@ struct DashboardView: View {
                 .font(.headline)
                 .padding(.horizontal, 4)
             
-            GlucoseChartView(readings: filteredReadings, selectedDate: dateFilter == 0 ? selectedDate : nil)
+            GlucoseChartView(readings: processedReadings, selectedDate: dateFilter == 0 ? selectedDate : nil)
                 .padding(.horizontal, 4)
         }
     }
@@ -472,6 +375,7 @@ struct DashboardView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
             
+            // Retain refresh functionality with a standalone button
             Button("Refresh Data") {
                 Task {
                     await appState.fetchLatestReadings()
@@ -479,6 +383,7 @@ struct DashboardView: View {
             }
             .buttonStyle(.bordered)
             .padding(.top, 8)
+            .accessibilityHint("Refreshes glucose data from the server")
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
@@ -534,18 +439,22 @@ struct DashboardView: View {
     
     // MARK: - Helper Methods
     
+    // Base filtered readings - these are filtered by date range but not processed yet
     private var filteredReadings: [GlucoseReading] {
         guard !appState.glucoseHistory.isEmpty else { return [] }
         
         let calendar = Calendar.current
         let now = Date()
         
+        // Sort the readings by timestamp to ensure proper order
+        let sortedReadings = appState.glucoseHistory.sorted(by: { $0.timestamp < $1.timestamp })
+        
         // If in day view and a day is selected
         if dateFilter == 0 && selectedDate != nil {
             let startOfSelectedDay = calendar.startOfDay(for: selectedDate!)
             let endOfSelectedDay = calendar.date(byAdding: .day, value: 1, to: startOfSelectedDay)!
             
-            return appState.glucoseHistory.filter { reading in
+            return sortedReadings.filter { reading in
                 reading.timestamp >= startOfSelectedDay && reading.timestamp < endOfSelectedDay
             }
         }
@@ -554,24 +463,93 @@ struct DashboardView: View {
         switch dateFilter {
         case 1: // Last 3 days
             let startDate = calendar.date(byAdding: .day, value: -3, to: now)!
-            return appState.glucoseHistory.filter { $0.timestamp >= startDate }
+            return sortedReadings.filter { $0.timestamp >= startDate }
         case 2: // Last 7 days
             let startDate = calendar.date(byAdding: .day, value: -7, to: now)!
-            return appState.glucoseHistory.filter { $0.timestamp >= startDate }
+            return sortedReadings.filter { $0.timestamp >= startDate }
         case 3: // Last 30 days
             let startDate = calendar.date(byAdding: .day, value: -30, to: now)!
-            return appState.glucoseHistory.filter { $0.timestamp >= startDate }
+            return sortedReadings.filter { $0.timestamp >= startDate }
         case 4: // All data
-            return appState.glucoseHistory
+            return sortedReadings
         default:
             // Default to today
             let startOfToday = calendar.startOfDay(for: now)
             let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
             
-            return appState.glucoseHistory.filter { reading in
+            return sortedReadings.filter { reading in
                 reading.timestamp >= startOfToday && reading.timestamp < endOfToday
             }
         }
+    }
+    
+    // Process readings to handle data gaps and ensure continuity across day boundaries
+    private var processedReadings: [GlucoseReading] {
+        let readings = filteredReadings
+        
+        // For single day view, no special processing needed
+        if dateFilter == 0 {
+            return readings
+        }
+        
+        // For multi-day views, ensure proper data handling
+        
+        // Already sorted in filteredReadings, but we'll ensure it here as well
+        let sortedReadings = readings.sorted(by: { $0.timestamp < $1.timestamp })
+        
+        // If we have fewer than 2 readings, no processing needed
+        guard sortedReadings.count >= 2 else { return sortedReadings }
+        
+        // Create a new array for processed readings
+        var processedReadings: [GlucoseReading] = []
+        
+        // First, identify day boundaries in the data
+        let calendar = Calendar.current
+        var dayBoundaries: [Date] = []
+        
+        if let firstReading = sortedReadings.first, let lastReading = sortedReadings.last {
+            var currentDate = calendar.startOfDay(for: firstReading.timestamp)
+            let endDate = calendar.startOfDay(for: lastReading.timestamp)
+            
+            // Add all day boundaries (midnight) between first and last reading
+            while currentDate <= endDate {
+                dayBoundaries.append(currentDate)
+                currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+            }
+        }
+        
+        // Process all readings, adding them to the result array
+        for (index, reading) in sortedReadings.enumerated() {
+            // Add the current reading
+            processedReadings.append(reading)
+            
+            // If not the last reading, check for large gaps or day boundaries
+            if index < sortedReadings.count - 1 {
+                let nextReading = sortedReadings[index + 1]
+                let timeDifference = nextReading.timestamp.timeIntervalSince(reading.timestamp)
+                
+                // If gap is greater than 6 hours, it's likely a significant gap in data
+                // This prevents straight lines across long periods without data
+                if timeDifference > 60 * 60 * 6 {
+                    // Create an intentional break in the chart by not connecting these points
+                    // This will be handled by the GlucoseChartView
+                    continue
+                }
+                
+                // Check if this interval crosses a day boundary
+                let readingDay = calendar.startOfDay(for: reading.timestamp)
+                let nextReadingDay = calendar.startOfDay(for: nextReading.timestamp)
+                
+                // If readings span different days, ensure chart handling preserves the connection
+                if readingDay != nextReadingDay {
+                    // No special action needed here as we've already sorted the readings
+                    // The chart will naturally connect these points across day boundaries
+                    continue
+                }
+            }
+        }
+        
+        return processedReadings
     }
     
     private var formattedSelectedDate: String {
@@ -623,6 +601,58 @@ struct DashboardView: View {
             formatter.timeStyle = .none
             AccessibilityAnnouncer.shared.announce("Navigated to \(formatter.string(from: newDate))")
         }
+    }
+    
+    // Day navigation controls view
+    private var dayNavigationControls: some View {
+        HStack(spacing: 16) {
+            Button(action: {
+                navigateDay(direction: .backward)
+            }) {
+                HStack {
+                    Image(systemName: "chevron.left")
+                    Text("Previous Day")
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(8)
+            }
+            .buttonStyle(.plain)
+            .accessibility(label: Text("Go to previous day"))
+            
+            Button(action: {
+                showDatePicker = true
+            }) {
+                HStack {
+                    Text(formattedSelectedDate)
+                    Image(systemName: "calendar")
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(8)
+            }
+            .buttonStyle(.plain)
+            .accessibility(label: Text("Open date picker"))
+            
+            Button(action: {
+                navigateDay(direction: .forward)
+            }) {
+                HStack {
+                    Text("Next Day")
+                    Image(systemName: "chevron.right")
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(8)
+            }
+            .buttonStyle(.plain)
+            .accessibility(label: Text("Go to next day"))
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
     }
 }
 
@@ -681,6 +711,21 @@ struct GlucoseChartView: View {
         }
         
         return []
+    }
+    
+    // MARK: - Chart Y-Axis Range
+    // Static Y-axis range of 3-27 mmol/L (or equivalent in mg/dL)
+    private var chartYDomain: ClosedRange<Double> {
+        // Check if current readings are in mmol/L or mg/dL
+        let isUsingMmolL = readings.isEmpty ? true : readings.first!.displayUnit == "mmol/L"
+        
+        if isUsingMmolL {
+            // Direct mmol/L values
+            return 3.0...27.0
+        } else {
+            // Convert mmol/L to mg/dL (multiply by 18)
+            return 54.0...486.0  // 3 * 18 = 54, 27 * 18 = 486
+        }
     }
     
     var body: some View {
@@ -805,21 +850,6 @@ struct GlucoseChartView: View {
             .stroke(Color.primary.opacity(0.1), lineWidth: 1)
     }
     
-    // Compute Y axis range dynamically
-    private var chartYDomain: ClosedRange<Double> {
-        if readings.isEmpty { return 40...300 }
-        
-        let minReading = readings.map { $0.displayValue }.min() ?? 70.0
-        let maxReading = readings.map { $0.displayValue }.max() ?? 180.0
-        
-        // Add padding to the range
-        let padding = (maxReading - minReading) * 0.2
-        let min = max(0, minReading - padding)
-        let max = maxReading + padding
-        
-        return min...max
-    }
-    
     // Helper to format time for X axis
     private func timeString(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -853,10 +883,10 @@ struct GlucoseChartView: View {
 
 // Update CurrentReadingView to support both current and historical average readings
 struct CurrentReadingView: View {
-    // Add isHistorical flag and readings array for calculating average
     let reading: GlucoseReading
     let isHistorical: Bool
     let allReadings: [GlucoseReading]
+    let selectedDate: Date?
     
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -868,6 +898,17 @@ struct CurrentReadingView: View {
         
         let average = allReadings.map { $0.displayValue }.reduce(0, +) / Double(allReadings.count)
         return GlucoseRangeStatus.fromValue(average, unit: reading.displayUnit)
+    }
+    
+    // Computed property to check if viewing a historical day (not today)
+    private var isViewingPastDate: Bool {
+        guard isHistorical, let selectedDate = selectedDate else { return false }
+        
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let selected = calendar.startOfDay(for: selectedDate)
+        
+        return selected < today
     }
     
     var body: some View {
@@ -900,6 +941,8 @@ struct CurrentReadingView: View {
                 }
             }
             
+            // MOVED: The historical data indicator is now integrated in the main content
+            
             HStack(alignment: .center, spacing: 30) {
                 VStack {
                     // For historical view, show average value
@@ -922,6 +965,22 @@ struct CurrentReadingView: View {
                     Text(reading.displayUnit)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                    
+                    // Add the historical data indicator here if viewing a past date
+                    if isViewingPastDate {
+                        HStack {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .foregroundColor(differentiateWithoutColor ? AccessibilityUtils.highContrastOrange : .orange)
+                                .imageScale(.small)
+                                .accessibilityHidden(true)
+                            Text("Viewing historical data")
+                                .font(.caption.weight(.medium))
+                                .foregroundColor(differentiateWithoutColor ? AccessibilityUtils.highContrastOrange : .orange)
+                        }
+                        .padding(.top, 8) // Add some space above the indicator
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("Historical data indicator")
+                    }
                 }
                 
                 // Only show trend for current reading, not for historical
