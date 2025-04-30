@@ -489,9 +489,9 @@ struct DashboardView: View {
         
         // For single day view, no special processing needed
         if dateFilter == 0 {
-            return readings
-        }
-        
+        return readings
+    }
+    
         // For multi-day views, ensure proper data handling
         
         // Already sorted in filteredReadings, but we'll ensure it here as well
@@ -596,7 +596,7 @@ struct DashboardView: View {
             selectedDate = newDate
             
             // Format for accessibility announcement
-            let formatter = DateFormatter()
+                            let formatter = DateFormatter()
             formatter.dateStyle = .medium
             formatter.timeStyle = .none
             AccessibilityAnnouncer.shared.announce("Navigated to \(formatter.string(from: newDate))")
@@ -722,7 +722,7 @@ struct GlucoseChartView: View {
         if isUsingMmolL {
             // Direct mmol/L values
             return 3.0...27.0
-        } else {
+                        } else {
             // Convert mmol/L to mg/dL (multiply by 18)
             return 54.0...486.0  // 3 * 18 = 54, 27 * 18 = 486
         }
@@ -875,7 +875,7 @@ struct GlucoseChartView: View {
             return AccessibilityUtils.highContrastOrange
         } else if reading.displayValue > targetMax {
             return AccessibilityUtils.highContrastRed
-        } else {
+                    } else {
             return AccessibilityUtils.highContrastGreen
         }
     }
@@ -931,13 +931,13 @@ struct CurrentReadingView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 } else {
-                    HStack(spacing: 5) {
-                        Image(systemName: "clock")
-                            .imageScale(.small)
-                        Text(formatTime(reading.timestamp))
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 5) {
+                    Image(systemName: "clock")
+                        .imageScale(.small)
+                    Text(formatTime(reading.timestamp))
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
                 }
             }
             
@@ -954,12 +954,12 @@ struct CurrentReadingView: View {
                             .minimumScaleFactor(0.5)
                             .lineLimit(1)
                     } else {
-                        Text(String(format: "%.1f", reading.displayValue))
-                            .font(.system(size: dynamicTypeSize >= .large ? 50 : 60, weight: .bold, design: .rounded))
+                    Text(String(format: "%.1f", reading.displayValue))
+                        .font(.system(size: dynamicTypeSize >= .large ? 50 : 60, weight: .bold, design: .rounded))
                             .foregroundColor(differentiateWithoutColor ? getHighContrastColor(for: reading) : reading.rangeStatus.color)
-                            .shadow(color: reading.rangeStatus.color.opacity(0.4), radius: 2, x: 0, y: 1)
-                            .minimumScaleFactor(0.5)
-                            .lineLimit(1)
+                        .shadow(color: reading.rangeStatus.color.opacity(0.4), radius: 2, x: 0, y: 1)
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
                     }
                     
                     Text(reading.displayUnit)
@@ -985,14 +985,14 @@ struct CurrentReadingView: View {
                 
                 // Only show trend for current reading, not for historical
                 if !isHistorical {
-                    VStack(spacing: 10) {
-                        Image(systemName: reading.trend.icon)
-                            .font(.system(size: dynamicTypeSize >= .large ? 35 : 40))
+                VStack(spacing: 10) {
+                    Image(systemName: reading.trend.icon)
+                        .font(.system(size: dynamicTypeSize >= .large ? 35 : 40))
                             .foregroundColor(differentiateWithoutColor ? getHighContrastColor(for: reading) : reading.rangeStatus.color)
-                        
-                        Text(reading.trend.description)
-                            .font(.system(.subheadline, design: .rounded, weight: .medium))
-                            .foregroundColor(.secondary)
+                    
+                    Text(reading.trend.description)
+                        .font(.system(.subheadline, design: .rounded, weight: .medium))
+                        .foregroundColor(.secondary)
                     }
                 } else {
                     // For historical view, show time in range percentage
@@ -1069,7 +1069,7 @@ struct CurrentReadingView: View {
     private func getHighContrastColor(for status: GlucoseRangeStatus) -> Color {
         switch status {
         case .low:
-            return AccessibilityUtils.highContrastOrange
+            return AccessibilityUtils.highContrastOrange 
         case .normal:
             return AccessibilityUtils.highContrastGreen
         case .high:
@@ -1140,7 +1140,7 @@ private struct StatCard: View {
     var body: some View {
         VStack(spacing: dynamicTypeSize >= .large ? 12 : 8) {
             // Icon at the top
-            Image(systemName: icon)
+                Image(systemName: icon)
                 .font(.system(size: dynamicTypeSize >= .large ? 24 : 28))
                 .foregroundColor(.blue.opacity(0.8))
                 .frame(height: dynamicTypeSize >= .large ? 20 : 30)
@@ -1153,10 +1153,10 @@ private struct StatCard: View {
                 .minimumScaleFactor(0.8)
             
             // Value
-            Text(value)
-                .font(.system(size: dynamicTypeSize >= .large ? 20 : 24, weight: .bold, design: .rounded))
+                Text(value)
+                    .font(.system(size: dynamicTypeSize >= .large ? 20 : 24, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
-                .lineLimit(1)
+                    .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
         .padding(dynamicTypeSize >= .large ? 10 : 16)
@@ -1195,18 +1195,18 @@ struct SwipeGestureModifier: ViewModifier {
                         // Determine swipe direction based on final position and velocity
                         if dragOffset > 75 || (dragOffset > 20 && velocity > 100) {
                             // Swipe right detected - no animation
-                            dragOffset = 0
-                            previousTranslation = 0
+                                dragOffset = 0
+                                previousTranslation = 0
                             onSwipe(.right)
                         } else if dragOffset < -75 || (dragOffset < -20 && velocity < -100) {
                             // Swipe left detected - no animation
-                            dragOffset = 0
-                            previousTranslation = 0
+                                dragOffset = 0
+                                previousTranslation = 0
                             onSwipe(.left)
                         } else {
                             // Reset position if not a valid swipe - no animation
-                            dragOffset = 0
-                            previousTranslation = 0
+                                dragOffset = 0
+                                previousTranslation = 0
                         }
                     }
             )
@@ -1359,7 +1359,7 @@ extension GlucoseTrend {
         case .falling: return .falling
         case .stable: return .stable
         case .rising: return .rising
-        }
+            }
     }
 }
 
