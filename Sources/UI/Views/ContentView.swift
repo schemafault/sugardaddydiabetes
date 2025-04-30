@@ -146,22 +146,16 @@ struct ContentView: View {
                     switch appState.selectedTab {
                     case 0:
                         DashboardView()
-                            .transition(.opacity)
                     case 1:
                         HistoryView()
-                            .transition(.opacity)
                     case 2:
                         SettingsView()
-                            .transition(.opacity)
                     case 3:
                         AGPView()
-                            .transition(.opacity)
                     case 4:
                         TimeInRangeCalendarView()
-                            .transition(.opacity)
                     case 5:
                         ComparativeDailyView()
-                            .transition(.opacity)
                     default:
                         EmptyView()
                     }
@@ -242,11 +236,6 @@ struct LoadingView: View {
                     .trim(from: 0, to: 0.7)
                     .stroke(LinearGradient(gradient: Gradient(colors: [.blue, .purple]), startPoint: .leading, endPoint: .trailing), lineWidth: 5)
                     .frame(width: 50, height: 50)
-                    .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
-                    .animation(Animation.linear(duration: 1).repeatForever(autoreverses: false), value: isAnimating)
-                    .onAppear {
-                        isAnimating = true
-                    }
                 
                 Text("Loading...")
                     .font(.headline)
@@ -274,6 +263,12 @@ struct DashboardView: View {
     @State private var previousDate: Date? = nil
     @State private var transitionDirection = TransitionDirection.none
     
+    // Add a computed property to determine if we're viewing historical data
+    private var isViewingHistoricalData: Bool {
+        // If using day filter and not viewing today, or using any other filter
+        return (dateFilter == 0 && selectedDate != nil && !isViewingToday()) || dateFilter != 0
+    }
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -282,23 +277,29 @@ struct DashboardView: View {
                     historicalDataIndicatorContent
                 }
                 
-                // Daily navigation controls (when in day view)
-                if dateFilter == 0 {
-                    dayNavigationControls
-                }
-                
-                // Time filter picker
+                // Move the time filter picker to before the graph
                 timeFilterPicker
                 
-                // Current reading display - use currentGlucoseReading instead of latestReading
+                // Current reading display
                 if let latestReading = appState.currentGlucoseReading {
-                    CurrentReadingView(reading: latestReading)
-                        .padding(.horizontal)
+                    CurrentReadingView(
+                        reading: latestReading,
+                        isHistorical: isViewingHistoricalData,
+                        allReadings: filteredReadings.isEmpty ? [latestReading] : filteredReadings
+                    )
+                    .padding(.horizontal)
                 }
                 
                 // Graph section with filtered readings
                 if !filteredReadings.isEmpty {
                     graphSection
+                    
+                    // Daily navigation controls MOVED HERE - after the graph
+                    // Only show for day view (dateFilter == 0)
+                    if dateFilter == 0 {
+                        dayNavigationControls
+                            .padding(.top, -10) // Reduce some spacing
+                    }
                     
                     // Statistics Cards
                     StatisticsView(readings: filteredReadings)
@@ -311,11 +312,6 @@ struct DashboardView: View {
                 Spacer(minLength: 20)
             }
             .padding(.vertical)
-            .contentWithTransition(
-                isTransitioning: $isTransitioning,
-                contentOpacity: $contentOpacity,
-                direction: $transitionDirection
-            )
         }
         .navigationTitle("Dashboard")
         .toolbar {
@@ -341,16 +337,18 @@ struct DashboardView: View {
         HStack {
             Image(systemName: "clock.arrow.circlepath")
                 .foregroundColor(differentiateWithoutColor ? AccessibilityUtils.highContrastOrange : .orange)
+                .imageScale(.medium)
                 .accessibilityHidden(true)
             Text("Viewing historical data")
-                .font(.callout)
+                .font(.callout.weight(.medium))
                 .foregroundColor(differentiateWithoutColor ? AccessibilityUtils.highContrastOrange : .orange)
         }
         .padding(.vertical, 8)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.orange.opacity(0.15))
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.orange.opacity(colorScheme == .dark ? 0.2 : 0.15))
+                .shadow(color: Color.orange.opacity(0.1), radius: 3, x: 0, y: 2)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Historical data indicator")
@@ -450,14 +448,13 @@ struct DashboardView: View {
     }
     
     private var graphSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Glucose Trend")
                 .font(.headline)
-                .padding(.horizontal)
+                .padding(.horizontal, 4)
             
-            GlucoseChartView(readings: filteredReadings)
-                .frame(height: 220)
-                .padding(.horizontal, 5)
+            GlucoseChartView(readings: filteredReadings, selectedDate: dateFilter == 0 ? selectedDate : nil)
+                .padding(.horizontal, 4)
         }
     }
     
@@ -601,9 +598,6 @@ struct DashboardView: View {
     }
     
     private func navigateDay(direction: DayNavigationDirection) {
-        // Store the previous date for animation
-        previousDate = selectedDate
-        
         // Get the current selected date, or today if none
         let currentDate = selectedDate ?? Calendar.current.startOfDay(for: Date())
         
@@ -620,11 +614,7 @@ struct DashboardView: View {
                 return
             }
             
-            // Start animation
-            isTransitioning = true
-            transitionDirection = direction == .forward ? .left : .right
-            
-            // Update the selected date
+            // Update the selected date immediately without animation
             selectedDate = newDate
             
             // Format for accessibility announcement
@@ -643,11 +633,8 @@ extension View {
         contentOpacity: Binding<Double>,
         direction: Binding<TransitionDirection>
     ) -> some View {
-        self.modifier(ContentTransitionModifier(
-            isTransitioning: isTransitioning,
-            contentOpacity: contentOpacity,
-            direction: direction
-        ))
+        // No animations or transitions - just return the content directly
+        return self
     }
 }
 
@@ -659,81 +646,77 @@ struct ContentTransitionModifier: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     func body(content: Content) -> some View {
+        // No animations - just return the content as is
         content
-            .opacity(contentOpacity)
-            .offset(x: isTransitioning && !reduceMotion ? direction.offset : 0)
-            .onChange(of: isTransitioning) { _, transitioning in
-                if transitioning {
-                    // Start transition
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        contentOpacity = 0
-                    }
-                    
-                    // After a short delay, end transition
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            contentOpacity = 1
-                            direction = .none
-                        }
-                        
-                        // End transition
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            isTransitioning = false
-                        }
-                    }
-                }
-            }
     }
 }
 
-// Create the GlucoseChartView
+// Fix the axis content issues in GlucoseChartView
 struct GlucoseChartView: View {
     let readings: [GlucoseReading]
+    let selectedDate: Date?
+    
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+    @EnvironmentObject private var appState: AppState
     
     // Target range
     private let targetMin = 70.0
     private let targetMax = 180.0
     
+    // Computed property to get insulin shots for the current view period
+    private var insulinShots: [InsulinShot] {
+        guard !readings.isEmpty else { return [] }
+        
+        // For a single day view
+        if let selectedDate = selectedDate {
+            let calendar = Calendar.current
+            let startOfDay = calendar.startOfDay(for: selectedDate)
+            let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+            return appState.getInsulinShots(fromDate: startOfDay, toDate: endOfDay)
+        } 
+        // For multiple days view, get the time range from readings
+        else if let firstReading = readings.first, let lastReading = readings.last {
+            return appState.getInsulinShots(fromDate: firstReading.timestamp, toDate: lastReading.timestamp)
+        }
+        
+        return []
+    }
+    
     var body: some View {
+        chartContainer
+    }
+    
+    // Break down the chart view into smaller components
+    private var chartContainer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            chartContent
+                .frame(height: 220)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 4)
+        }
+        .padding(12)
+        .background(chartBackground)
+        .overlay(chartBorder)
+        .shadow(color: colorScheme == .dark ? 
+                Color.black.opacity(0.3) : 
+                Color.gray.opacity(0.2), 
+               radius: 10, x: 0, y: 5)
+    }
+    
+    private var chartContent: some View {
         Chart {
             // Target range rectangle
-            RectangleMark(
-                xStart: .value("Start", readings.first?.timestamp ?? Date()),
-                xEnd: .value("End", readings.last?.timestamp ?? Date()),
-                yStart: .value("Min", targetMin),
-                yEnd: .value("Max", targetMax)
-            )
-            .foregroundStyle(Color.green.opacity(differentiateWithoutColor ? 0.1 : 0.15))
-            .accessibilityHidden(true)
+            targetRangeRectangle
             
             // Glucose line
-            ForEach(readings) { reading in
-                LineMark(
-                    x: .value("Time", reading.timestamp),
-                    y: .value("Glucose", reading.displayValue)
-                )
-                .lineStyle(StrokeStyle(lineWidth: 3))
-                .foregroundStyle(differentiateWithoutColor ? 
-                                  AccessibilityUtils.highContrastBlue : 
-                                  Color.blue.opacity(0.8))
-                .interpolationMethod(.catmullRom)
-                .accessibilityLabel("Glucose reading at \(timeString(reading.timestamp))")
-                .accessibilityValue("\(String(format: "%.1f", reading.displayValue)) \(reading.displayUnit)")
-            }
+            glucoseLine
             
             // Data points
-            ForEach(readings) { reading in
-                PointMark(
-                    x: .value("Time", reading.timestamp),
-                    y: .value("Glucose", reading.displayValue)
-                )
-                .symbolSize(CGSize(width: 10, height: 10))
-                .foregroundStyle(differentiateWithoutColor ? 
-                                  getHighContrastPointColor(for: reading) : 
-                                  getPointColor(for: reading))
-            }
+            dataPoints
+            
+            // Insulin shot indicators
+            insulinShotMarkers
         }
         .chartXAxis {
             AxisMarks(preset: .automatic, values: .stride(by: .hour, count: 2)) { value in
@@ -755,17 +738,71 @@ struct GlucoseChartView: View {
             }
         }
         .chartYScale(domain: chartYDomain)
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? 
-                      Color.black.opacity(0.3) : 
-                      Color.white.opacity(0.7))
+    }
+    
+    private var targetRangeRectangle: some ChartContent {
+        RectangleMark(
+            xStart: .value("Start", readings.first?.timestamp ?? Date()),
+            xEnd: .value("End", readings.last?.timestamp ?? Date()),
+            yStart: .value("Min", targetMin),
+            yEnd: .value("Max", targetMax)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.primary.opacity(0.2), lineWidth: 1)
-        )
+        .foregroundStyle(Color.green.opacity(differentiateWithoutColor ? 0.1 : 0.15))
+        .accessibilityHidden(true)
+    }
+    
+    private var glucoseLine: some ChartContent {
+        ForEach(readings) { reading in
+            LineMark(
+                x: .value("Time", reading.timestamp),
+                y: .value("Glucose", reading.displayValue)
+            )
+            .lineStyle(StrokeStyle(lineWidth: 3))
+            .foregroundStyle(differentiateWithoutColor ? 
+                             AccessibilityUtils.highContrastBlue : 
+                             Color.blue.opacity(0.8))
+            .interpolationMethod(.catmullRom)
+            .accessibilityLabel("Glucose reading at \(timeString(reading.timestamp))")
+            .accessibilityValue("\(String(format: "%.1f", reading.displayValue)) \(reading.displayUnit)")
+        }
+    }
+    
+    private var dataPoints: some ChartContent {
+        ForEach(readings) { reading in
+            PointMark(
+                x: .value("Time", reading.timestamp),
+                y: .value("Glucose", reading.displayValue)
+            )
+            .symbolSize(CGSize(width: 10, height: 10))
+            .foregroundStyle(differentiateWithoutColor ? 
+                             getHighContrastPointColor(for: reading) : 
+                             getPointColor(for: reading))
+        }
+    }
+    
+    private var insulinShotMarkers: some ChartContent {
+        ForEach(insulinShots) { shot in
+            RuleMark(
+                x: .value("Insulin Shot", shot.timestamp)
+            )
+            .foregroundStyle(differentiateWithoutColor ? 
+                             Color.purple.opacity(0.8) : 
+                             Color.purple.opacity(0.5))
+            .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round))
+            .accessibilityLabel("Insulin shot at \(timeString(shot.timestamp)), \(shot.dosage != nil ? "\(String(format: "%.1f", shot.dosage!)) units" : "no dosage recorded")")
+        }
+    }
+    
+    private var chartBackground: some View {
+        RoundedRectangle(cornerRadius: 16)
+            .fill(colorScheme == .dark ? 
+                  Color(white: 0.12).opacity(0.8) : 
+                  Color.white.opacity(0.7))
+    }
+    
+    private var chartBorder: some View {
+        RoundedRectangle(cornerRadius: 16)
+            .stroke(Color.primary.opacity(0.1), lineWidth: 1)
     }
     
     // Compute Y axis range dynamically
@@ -814,55 +851,101 @@ struct GlucoseChartView: View {
     }
 }
 
-// Style CurrentReadingView with high contrast support
+// Update CurrentReadingView to support both current and historical average readings
 struct CurrentReadingView: View {
+    // Add isHistorical flag and readings array for calculating average
     let reading: GlucoseReading
+    let isHistorical: Bool
+    let allReadings: [GlucoseReading]
+    
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     
+    // Computed property to get average reading status
+    private var averageStatus: GlucoseRangeStatus {
+        guard !allReadings.isEmpty else { return GlucoseRangeStatus.normal }
+        
+        let average = allReadings.map { $0.displayValue }.reduce(0, +) / Double(allReadings.count)
+        return GlucoseRangeStatus.fromValue(average, unit: reading.displayUnit)
+    }
+    
     var body: some View {
         VStack(spacing: dynamicTypeSize >= .large ? 20 : 16) {
             HStack {
-                Text("Current Reading")
+                // Change title based on whether we're showing current or historical data
+                Text(isHistorical ? "Average Reading" : "Current Reading")
                     .font(.system(size: dynamicTypeSize >= .large ? 20 : 18, weight: .medium))
                     .foregroundColor(.secondary)
                 
                 Spacer()
                 
-                HStack(spacing: 5) {
-                    Image(systemName: "clock")
-                        .imageScale(.small)
-                    Text(formatTime(reading.timestamp))
+                // For historical view, show date instead of time
+                if isHistorical {
+                    HStack(spacing: 5) {
+                        Image(systemName: "calendar")
+                            .imageScale(.small)
+                        Text(formatDate(reading.timestamp))
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                } else {
+                    HStack(spacing: 5) {
+                        Image(systemName: "clock")
+                            .imageScale(.small)
+                        Text(formatTime(reading.timestamp))
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
-                .font(.caption)
-                .foregroundColor(.secondary)
             }
             
             HStack(alignment: .center, spacing: 30) {
                 VStack {
-                    Text(String(format: "%.1f", reading.displayValue))
-                        .font(.system(size: dynamicTypeSize >= .large ? 50 : 60, weight: .bold, design: .rounded))
-                        .foregroundColor(differentiateWithoutColor ? getHighContrastColor(for: reading) : reading.rangeStatus.color)
-                        .contentTransition(.numericText())
-                        .shadow(color: reading.rangeStatus.color.opacity(0.4), radius: 2, x: 0, y: 1)
-                        .minimumScaleFactor(0.5)
-                        .lineLimit(1)
+                    // For historical view, show average value
+                    if isHistorical {
+                        Text(calculateAverage())
+                            .font(.system(size: dynamicTypeSize >= .large ? 50 : 60, weight: .bold, design: .rounded))
+                            .foregroundColor(differentiateWithoutColor ? getHighContrastColor(for: averageStatus) : averageStatus.color)
+                            .shadow(color: averageStatus.color.opacity(0.4), radius: 2, x: 0, y: 1)
+                            .minimumScaleFactor(0.5)
+                            .lineLimit(1)
+                    } else {
+                        Text(String(format: "%.1f", reading.displayValue))
+                            .font(.system(size: dynamicTypeSize >= .large ? 50 : 60, weight: .bold, design: .rounded))
+                            .foregroundColor(differentiateWithoutColor ? getHighContrastColor(for: reading) : reading.rangeStatus.color)
+                            .shadow(color: reading.rangeStatus.color.opacity(0.4), radius: 2, x: 0, y: 1)
+                            .minimumScaleFactor(0.5)
+                            .lineLimit(1)
+                    }
                     
                     Text(reading.displayUnit)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
                 
-                VStack(spacing: 10) {
-                    Image(systemName: reading.trend.icon)
-                        .font(.system(size: dynamicTypeSize >= .large ? 35 : 40))
-                        .foregroundColor(differentiateWithoutColor ? getHighContrastColor(for: reading) : reading.rangeStatus.color)
-                        .symbolEffect(.pulse, options: .repeating, value: reading.isInRange ? false : true)
-                    
-                    Text(reading.trend.description)
-                        .font(.system(.subheadline, design: .rounded, weight: .medium))
-                        .foregroundColor(.secondary)
+                // Only show trend for current reading, not for historical
+                if !isHistorical {
+                    VStack(spacing: 10) {
+                        Image(systemName: reading.trend.icon)
+                            .font(.system(size: dynamicTypeSize >= .large ? 35 : 40))
+                            .foregroundColor(differentiateWithoutColor ? getHighContrastColor(for: reading) : reading.rangeStatus.color)
+                        
+                        Text(reading.trend.description)
+                            .font(.system(.subheadline, design: .rounded, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    // For historical view, show time in range percentage
+                    VStack(spacing: 10) {
+                        Text(calculateTimeInRange())
+                            .font(.system(size: dynamicTypeSize >= .large ? 25 : 30, weight: .bold, design: .rounded))
+                            .foregroundColor(.secondary)
+                        
+                        Text("in range")
+                            .font(.system(.subheadline, design: .rounded, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }
@@ -874,20 +957,47 @@ struct CurrentReadingView: View {
             RoundedRectangle(cornerRadius: 20)
                 .stroke(
                     differentiateWithoutColor ? 
-                    getHighContrastColor(for: reading).opacity(0.5) : 
-                    reading.rangeStatus.color.opacity(0.3), 
+                    (isHistorical ? getHighContrastColor(for: averageStatus) : getHighContrastColor(for: reading)).opacity(0.5) : 
+                    (isHistorical ? averageStatus.color : reading.rangeStatus.color).opacity(0.3), 
                     lineWidth: differentiateWithoutColor ? 2 : 1
                 )
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Current glucose reading: \(String(format: "%.1f", reading.displayValue)) \(reading.displayUnit), \(reading.trend.description)")
-        .accessibilityValue(reading.isInRange ? "In range" : "Out of range")
+        .accessibilityLabel(isHistorical ? 
+                           "Average glucose reading: \(calculateAverage()) \(reading.displayUnit)" : 
+                           "Current glucose reading: \(String(format: "%.1f", reading.displayValue)) \(reading.displayUnit), \(reading.trend.description)")
+        .accessibilityValue(isHistorical ? 
+                           "Time in range: \(calculateTimeInRange())" : 
+                           (reading.isInRange ? "In range" : "Out of range"))
         .accessibilityAddTraits(.updatesFrequently)
+    }
+    
+    // Helper function to calculate average
+    private func calculateAverage() -> String {
+        guard !allReadings.isEmpty else { return "0.0" }
+        let values = allReadings.map { $0.displayValue }
+        let average = values.reduce(0, +) / Double(values.count)
+        return String(format: "%.1f", average)
+    }
+    
+    // Helper function to calculate time in range
+    private func calculateTimeInRange() -> String {
+        guard !allReadings.isEmpty else { return "0%" }
+        let inRange = allReadings.filter { $0.isInRange }.count
+        let percentage = Double(inRange) / Double(allReadings.count) * 100
+        return String(format: "%.1f%%", percentage)
     }
     
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
         return formatter.string(from: date)
     }
     
@@ -913,14 +1023,14 @@ struct CurrentReadingView: View {
 struct StatisticsView: View {
     let readings: [GlucoseReading]
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize // Support for dynamic type
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     
     var body: some View {
         LazyVGrid(columns: [
             GridItem(.flexible()),
             GridItem(.flexible()),
             GridItem(.flexible())
-        ], spacing: dynamicTypeSize >= .large ? 25 : 20) { // Adjust spacing for dynamic type
+        ], spacing: dynamicTypeSize >= .large ? 15 : 12) {
             StatCard(title: "Average", value: calculateAverage(), icon: "number")
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Average glucose level: \(calculateAverage())")
@@ -950,21 +1060,49 @@ struct StatisticsView: View {
     }
 }
 
-// Simplified, minimal version of other struct defs
+// Enhance the StatCard design for a more professional look
 private struct StatCard: View {
     let title: String
     let value: String
     let icon: String
     
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    
+    private var background: some View {
+        RoundedRectangle(cornerRadius: 16)
+            .fill(Material.regularMaterial)
+            .shadow(color: colorScheme == .dark ? 
+                    Color.black.opacity(0.25) : 
+                    Color.gray.opacity(0.2), 
+                   radius: 8, x: 0, y: 4)
+    }
+    
     var body: some View {
-        VStack {
+        VStack(spacing: dynamicTypeSize >= .large ? 12 : 8) {
+            // Icon at the top
             Image(systemName: icon)
+                .font(.system(size: dynamicTypeSize >= .large ? 24 : 28))
+                .foregroundColor(.blue.opacity(0.8))
+                .frame(height: dynamicTypeSize >= .large ? 20 : 30)
+            
+            // Title
             Text(title)
+                .font(.system(size: dynamicTypeSize >= .large ? 14 : 16, weight: .medium))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            
+            // Value
             Text(value)
+                .font(.system(size: dynamicTypeSize >= .large ? 20 : 24, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
-        .padding()
-        .background(Material.regularMaterial)
-        .cornerRadius(10)
+        .padding(dynamicTypeSize >= .large ? 10 : 16)
+        .frame(maxWidth: .infinity)
+        .background(background)
     }
 }
 
@@ -989,21 +1127,7 @@ struct SwipeGestureModifier: ViewModifier {
                         let translation = gesture.translation.width
                         let delta = translation - previousTranslation
                         previousTranslation = translation
-                        
-                        // Only allow horizontal dragging
-                        let newOffset = dragOffset + delta
-                        
-                        // Limit the drag distance with diminishing returns
-                        let maxDrag: CGFloat = 100
-                        if abs(newOffset) < maxDrag {
-                            dragOffset = newOffset
-                        } else {
-                            // Apply diminishing effect beyond maxDrag
-                            let extraDrag = abs(newOffset) - maxDrag
-                            let diminishedExtra = extraDrag * 0.2 // Diminishing factor
-                            let direction: CGFloat = newOffset > 0 ? 1 : -1
-                            dragOffset = maxDrag * direction + diminishedExtra * direction
-                        }
+                        dragOffset = dragOffset + delta
                     }
                     .onEnded { gesture in
                         let translation = gesture.translation.width
@@ -1011,30 +1135,23 @@ struct SwipeGestureModifier: ViewModifier {
                         
                         // Determine swipe direction based on final position and velocity
                         if dragOffset > 75 || (dragOffset > 20 && velocity > 100) {
-                            // Swipe right detected
-                            withAnimation(.spring()) {
-                                dragOffset = 0
-                                previousTranslation = 0
-                            }
+                            // Swipe right detected - no animation
+                            dragOffset = 0
+                            previousTranslation = 0
                             onSwipe(.right)
                         } else if dragOffset < -75 || (dragOffset < -20 && velocity < -100) {
-                            // Swipe left detected
-                            withAnimation(.spring()) {
-                                dragOffset = 0
-                                previousTranslation = 0
-                            }
+                            // Swipe left detected - no animation
+                            dragOffset = 0
+                            previousTranslation = 0
                             onSwipe(.left)
                         } else {
-                            // Reset position if not a valid swipe
-                            withAnimation(.spring()) {
-                                dragOffset = 0
-                                previousTranslation = 0
-                            }
+                            // Reset position if not a valid swipe - no animation
+                            dragOffset = 0
+                            previousTranslation = 0
                         }
                     }
             )
             .offset(x: dragOffset)
-            .animation(.interactiveSpring(), value: dragOffset)
     }
 }
 
